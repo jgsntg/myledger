@@ -1,6 +1,43 @@
-import { Signal, StockData } from '../types'
+import { Bar, Signal, StockData } from '../types'
 import { fmtMoney, fmtPct, deltaClass } from '../lib/format'
 import StockDetail from './StockDetail'
+
+function MiniSparkline({ bars, isUp }: { bars: Bar[]; isUp: boolean }) {
+  if (!bars.length) return null
+  const w = 120
+  const h = 32
+  const pad = 2
+  const closes = bars.slice(-30).map((b) => b.c)
+  if (closes.length < 2) return null
+  const min = Math.min(...closes)
+  const max = Math.max(...closes)
+  const range = max - min || 1
+  const stepX = (w - pad * 2) / (closes.length - 1)
+  const points = closes
+    .map((p, i) => {
+      const x = pad + i * stepX
+      const y = pad + (h - pad * 2) * (1 - (p - min) / range)
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+  const color = isUp ? '#6fcf97' : '#eb5757'
+  const fill = isUp ? 'rgba(111, 207, 151, 0.10)' : 'rgba(235, 87, 87, 0.10)'
+  const areaPoints = `${pad},${h - pad} ${points} ${pad + (closes.length - 1) * stepX},${h - pad}`
+
+  return (
+    <svg
+      viewBox={`0 0 ${w} ${h}`}
+      width="100%"
+      height={h}
+      preserveAspectRatio="none"
+      style={{ display: 'block' }}
+      aria-label="30-day price sparkline"
+    >
+      <polygon points={areaPoints} fill={fill} />
+      <polyline points={points} fill="none" stroke={color} strokeWidth="1.2" />
+    </svg>
+  )
+}
 
 interface Props {
   symbol: string
@@ -71,7 +108,7 @@ export default function StockRow({
           background: isExpanded ? 'var(--bg-card)' : 'var(--bg-elev)',
           padding: '18px 22px',
           display: 'grid',
-          gridTemplateColumns: '1.2fr 1fr 1fr 1.6fr 70px 40px',
+          gridTemplateColumns: '1.2fr 1fr 1fr 120px 1.4fr 70px 40px',
           gap: 16,
           alignItems: 'center',
           cursor: 'pointer',
@@ -165,6 +202,13 @@ export default function StockRow({
           </div>
         ) : (
           <div className="skeleton" style={{ height: 13, width: 60 }} />
+        )}
+
+        {/* Sparkline preview */}
+        {data?.bars?.length ? (
+          <MiniSparkline bars={data.bars} isUp={data.change >= 0} />
+        ) : (
+          <div className="skeleton" style={{ height: 32, width: '100%' }} />
         )}
 
         {/* Signals */}
