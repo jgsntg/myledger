@@ -96,6 +96,26 @@ CREATE TABLE IF NOT EXISTS filer_holdings (
 );
 CREATE INDEX IF NOT EXISTS idx_filer_holdings_filer
   ON filer_holdings(filer_id, report_date DESC);
+
+CREATE TABLE IF NOT EXISTS system_settings (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auto_trade_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol      TEXT NOT NULL,
+  side        TEXT NOT NULL,
+  qty         TEXT NOT NULL,
+  source      TEXT NOT NULL,
+  source_ref  TEXT NOT NULL,
+  order_id    TEXT,
+  status      TEXT NOT NULL,
+  error       TEXT,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_auto_trade_log_created
+  ON auto_trade_log(created_at DESC);
 """
 
 
@@ -109,4 +129,7 @@ async def init_db() -> None:
     async with aiosqlite.connect(settings.database_url) as db:
         db.row_factory = aiosqlite.Row
         await db.executescript(_DDL)
+        await db.execute(
+            "INSERT OR IGNORE INTO system_settings (key, value) VALUES ('trading_mode', 'manual')"
+        )
         await db.commit()

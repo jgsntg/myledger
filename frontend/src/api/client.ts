@@ -1,5 +1,7 @@
 import type {
   Alert,
+  AppSettings,
+  AutoTradeEntry,
   Bar,
   ClockData,
   FilerHolding,
@@ -71,6 +73,12 @@ export const api = {
     request<Record<string, unknown>>(`/api/alerts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAlert: (id: number) =>
     request<void>(`/api/alerts/${id}`, { method: 'DELETE' }),
+
+  getSettings: () => request<AppSettings>('/api/settings'),
+  updateSettings: (body: Partial<AppSettings>) =>
+    request<AppSettings>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
+  getAutoTrades: (limit = 50) =>
+    request<AutoTradeEntry[]>(`/api/auto-trades?limit=${limit}`),
 
   getFilers: () => request<TrackedFiler[]>('/api/filers'),
   createFiler: (body: { name: string; filer_type: string; source_id: string }) =>

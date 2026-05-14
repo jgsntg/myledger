@@ -10,6 +10,7 @@ from pydantic import BaseModel
 
 from app import edgar, quiver
 from app.auth import require_token
+from app.auto_trader import maybe_auto_trade
 from app.database import get_db
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
@@ -187,7 +188,20 @@ async def _refresh_congress_filer(db: aiosqlite.Connection, filer: aiosqlite.Row
                 filed_at,
             ),
         )
-        inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+        row_inserted = cur.rowcount and cur.rowcount > 0
+        inserted += 1 if row_inserted else 0
+
+        if row_inserted:
+            side = "sell" if transaction_type.lower().startswith("sale") else "buy"
+            await maybe_auto_trade(
+                symbol=symbol,
+                side=side,
+                source="filer",
+                source_ref=filer["source_id"],
+                db=db,
+                amount_low=amount_low,
+                amount_high=amount_high,
+            )
 
     await db.commit()
     return {

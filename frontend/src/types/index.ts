@@ -171,3 +171,21 @@ export interface SignalLogEntry {
   type: 'buy' | 'sell' | 'warn' | 'info'
   symbol: string | null
 }
+
+export interface AppSettings {
+  trading_mode: 'auto' | 'manual'
+  alpaca_env: string
+}
+
+export interface AutoTradeEntry {
+  id: number
+  symbol: string
+  side: 'buy' | 'sell'
+  qty: string
+  source: string
+  source_ref: string
+  order_id: string | null
+  status: 'submitted' | 'failed'
+  error: string | null
+  created_at: string
+}

@@ -8,8 +8,11 @@ import PositionsTable from './components/PositionsTable'
 import OrdersTable from './components/OrdersTable'
 import TradeModal from './components/TradeModal'
 import TrackedFilersSection from './components/TrackedFilersSection'
+import AutoTradeLog from './components/AutoTradeLog'
 import {
   AccountData,
+  AppSettings,
+  AutoTradeEntry,
   ClockData,
   Order,
   Position,
@@ -41,6 +44,8 @@ export default function App() {
   const [tradeTarget, setTradeTarget] = useState<TradeTarget | null>(null)
   const [heldSymbols, setHeldSymbols] = useState<Set<string>>(new Set())
   const [connected, setConnected] = useState(false)
+  const [appSettings, setAppSettings] = useState<AppSettings>({ trading_mode: 'manual', alpaca_env: 'paper' })
+  const [autoTrades, setAutoTrades] = useState<AutoTradeEntry[]>([])
 
   // Track previous signals per symbol to detect transitions
   const prevSignals = useRef<Record<string, Set<string>>>({})
@@ -143,28 +148,50 @@ export default function App() {
     [],
   )
 
-  // Bootstrap: load watchlist, clock, then data
+  const refreshAutoTrades = useCallback(async () => {
+    try {
+      const trades = await api.getAutoTrades()
+      setAutoTrades(trades)
+    } catch (e) {
+      console.error('Auto-trade log refresh failed:', e)
+    }
+  }, [])
+
+  async function toggleTradingMode() {
+    if (appSettings.alpaca_env === 'live') return
+    const next = appSettings.trading_mode === 'auto' ? 'manual' : 'auto'
+    try {
+      const updated = await api.updateSettings({ trading_mode: next })
+      setAppSettings(updated)
+    } catch (e) {
+      console.error('Failed to update trading mode:', e)
+    }
+  }
+
+  // Bootstrap: load watchlist, clock, settings, then data
   useEffect(() => {
     async function init() {
       try {
-        const [watchlist, clockData] = await Promise.all([
+        const [watchlist, clockData, settingsData] = await Promise.all([
           api.getWatchlist(),
           api.getClock(),
+          api.getSettings(),
         ])
         const syms = watchlist.map((e: WatchlistEntry) => e.symbol)
         setSymbols(syms)
         setClock(clockData)
+        setAppSettings(settingsData)
 
         // Seed skeleton entries
         setStockData(Object.fromEntries(syms.map((s: string) => [s, null])))
 
-        await Promise.all([refreshAccount(), refreshStockData(syms)])
+        await Promise.all([refreshAccount(), refreshStockData(syms), refreshAutoTrades()])
       } catch (e) {
         console.error('Init failed:', e)
       }
     }
     init()
-  }, [refreshAccount, refreshStockData])
+  }, [refreshAccount, refreshStockData, refreshAutoTrades])
 
   // Periodic refresh: clock every 30s, stocks every 30s, account every 20s
   useEffect(() => {
@@ -183,13 +210,15 @@ export default function App() {
     }, 30_000)
 
     const accountTimer = setInterval(refreshAccount, 20_000)
+    const autoTradeTimer = setInterval(refreshAutoTrades, 30_000)
 
     return () => {
       clearInterval(clockTimer)
       clearInterval(stockTimer)
       clearInterval(accountTimer)
+      clearInterval(autoTradeTimer)
     }
-  }, [refreshAccount, refreshStockData])
+  }, [refreshAccount, refreshStockData, refreshAutoTrades])
 
   async function handleAddSymbol(symbol: string) {
     await api.addToWatchlist(symbol)
@@ -220,7 +249,14 @@ export default function App() {
 
   return (
     <>
-      <Header isConnected={connected} clock={clock} onConnect={() => {}} />
+      <Header
+        isConnected={connected}
+        clock={clock}
+        onConnect={() => {}}
+        tradingMode={appSettings.trading_mode}
+        alpacaEnv={appSettings.alpaca_env}
+        onToggleTradingMode={toggleTradingMode}
+      />
 
       <div style={{ maxWidth: 1600, margin: '0 auto', padding: '32px' }}>
         <PortfolioSummary account={account} positions={positions} />
@@ -255,6 +291,8 @@ export default function App() {
           onMirror={(symbol, side, qty, sourceNote) => openTrade(symbol, side, qty, sourceNote)}
           onHeldSymbolsChange={setHeldSymbols}
         />
+
+        <AutoTradeLog entries={autoTrades} tradingMode={appSettings.trading_mode} />
 
         <div
           style={{

@@ -257,6 +257,53 @@ nancy-pelosi
    - New Python files should include `from __future__ import annotations`.
    - In Pydantic `BaseModel` subclasses, use `Optional[X]`, not `X | None`.
 
+## Auto-Trading System (Phase 2c — 2026-05-14)
+
+### Overview
+
+A trading mode toggle has been added. Default is `manual`. Can be switched to `auto` via the header pill button. Blocked from switching to `auto` if `ALPACA_ENV=live`.
+
+### Toggle
+
+- Click the **MANUAL / AUTO** pill in the header.
+- In `auto` mode: the pill turns green with a pulsing dot.
+- In `live` mode: toggle is greyed out and disabled.
+
+### What triggers auto-trades
+
+| Source | Condition | Side |
+|--------|-----------|------|
+| Signal scanner | RSI/MACD/Bollinger buy signal | buy |
+| Signal scanner | RSI/MACD/Bollinger sell signal | sell |
+| Alert scanner | `price_below` or `rsi_below` | buy |
+| Alert scanner | `price_above` or `rsi_above` | sell |
+| Filer refresh | New transaction (Purchase/Buy) | buy |
+| Filer refresh | New transaction (Sale) | sell |
+
+### Rules
+
+- **1 auto-trade per symbol per calendar day** (hard cap).
+- All auto-trades are market orders, `time_in_force=day`.
+- Qty defaults to `1` for signals/alerts. For filer trades, fetches current snapshot price and computes `round(midpoint / price)` where midpoint = `(amount_low + amount_high) / 2` (or `amount_low * 2` if no upper bound).
+- Safety guard in `auto_trader.py`: if `ALPACA_ENV=live`, `maybe_auto_trade` is a no-op even if DB says `auto`.
+
+### New files
+
+- `backend/app/auto_trader.py` — core logic: mode check, daily cap, order submit, log insert.
+- `backend/app/routers/settings.py` — `GET/PATCH /api/settings`, `GET /api/auto-trades`.
+- `frontend/src/components/AutoTradeLog.tsx` — table of recent auto-executions.
+
+### New DB tables
+
+- `system_settings` — key/value store; seeded with `trading_mode=manual` on `init_db`.
+- `auto_trade_log` — persistent record of every auto-trade attempt (submitted or failed).
+
+### New API endpoints
+
+- `GET /api/settings` — returns `{ trading_mode, alpaca_env }`.
+- `PATCH /api/settings` — body `{ trading_mode: "auto"|"manual" }`.
+- `GET /api/auto-trades?limit=50` — returns recent auto-trade log entries.
+
 ## Next Recommended Tasks
 
 1. Add real `QUIVER_API_TOKEN` and test live Sync.
@@ -267,4 +314,5 @@ nancy-pelosi
    - `ruff`
 4. Run full backend tests.
 5. Implement EDGAR 13F XML parsing later.
+6. Phase 3: Buy/sell evaluator — cost basis, short/long-term gains, wash sale window, fees. Recommends hold/sell/partial-sell before executing.
 

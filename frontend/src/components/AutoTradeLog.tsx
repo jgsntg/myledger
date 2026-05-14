@@ -1,0 +1,130 @@
+import { AutoTradeEntry } from '../types'
+
+interface Props {
+  entries: AutoTradeEntry[]
+  tradingMode: 'auto' | 'manual'
+}
+
+const cell: React.CSSProperties = {
+  padding: '8px 12px',
+  borderBottom: '1px solid var(--line)',
+  fontFamily: 'JetBrains Mono, monospace',
+  fontSize: 11,
+  color: 'var(--ink-soft)',
+  whiteSpace: 'nowrap',
+}
+
+const hdr: React.CSSProperties = {
+  ...cell,
+  color: 'var(--ink-mute)',
+  fontSize: 10,
+  letterSpacing: 1,
+  textTransform: 'uppercase',
+  fontWeight: 500,
+}
+
+export default function AutoTradeLog({ entries, tradingMode }: Props) {
+  return (
+    <section style={{ marginTop: 32 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <h2
+          style={{
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 11,
+            letterSpacing: 2,
+            textTransform: 'uppercase',
+            color: 'var(--ink-mute)',
+            fontWeight: 500,
+          }}
+        >
+          Auto-Trade Log
+        </h2>
+        <span
+          style={{
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 9,
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+            padding: '2px 7px',
+            border: `1px solid ${tradingMode === 'auto' ? 'var(--green)' : 'var(--line)'}`,
+            color: tradingMode === 'auto' ? 'var(--green)' : 'var(--ink-mute)',
+          }}
+        >
+          {tradingMode === 'auto' ? 'active' : 'inactive'}
+        </span>
+      </div>
+
+      {entries.length === 0 ? (
+        <div
+          style={{
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 11,
+            color: 'var(--ink-mute)',
+            padding: '16px 0',
+          }}
+        >
+          No auto-trades executed yet.
+        </div>
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', borderTop: '1px solid var(--line)' }}>
+            <thead>
+              <tr>
+                <th style={hdr}>Time</th>
+                <th style={hdr}>Symbol</th>
+                <th style={hdr}>Side</th>
+                <th style={hdr}>Qty</th>
+                <th style={hdr}>Source</th>
+                <th style={hdr}>Trigger</th>
+                <th style={hdr}>Order ID</th>
+                <th style={hdr}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((e) => (
+                <tr key={e.id}>
+                  <td style={cell}>
+                    {new Date(e.created_at + 'Z').toLocaleString('en-US', {
+                      month: 'numeric',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                      hour12: false,
+                    })}
+                  </td>
+                  <td style={{ ...cell, color: 'var(--ink)', fontWeight: 600 }}>{e.symbol}</td>
+                  <td
+                    style={{
+                      ...cell,
+                      color: e.side === 'buy' ? 'var(--green)' : 'var(--red)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {e.side.toUpperCase()}
+                  </td>
+                  <td style={cell}>{e.qty}</td>
+                  <td style={cell}>{e.source}</td>
+                  <td style={{ ...cell, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {e.source_ref}
+                  </td>
+                  <td style={{ ...cell, color: 'var(--ink-mute)', fontSize: 10 }}>
+                    {e.order_id ? e.order_id.slice(0, 8) + '…' : '—'}
+                  </td>
+                  <td style={cell}>
+                    {e.status === 'submitted' ? (
+                      <span style={{ color: 'var(--green)' }}>✓</span>
+                    ) : (
+                      <span style={{ color: 'var(--red)' }} title={e.error ?? undefined}>
+                        ✗ {e.error && e.error.length > 40 ? e.error.slice(0, 40) + '…' : e.error}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}

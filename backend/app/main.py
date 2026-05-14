@@ -14,6 +14,7 @@ from app.routers import (
     market,
     orders,
     positions,
+    settings,
     signals,
     watchlist,
 )
@@ -55,5 +56,6 @@ for router in [
     signals.router,
     alerts.router,
     filers.router,
+    settings.router,
 ]:
     app.include_router(router)

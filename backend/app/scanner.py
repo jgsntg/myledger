@@ -17,6 +17,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.alpaca import data_get, trading_get
+from app.auto_trader import maybe_auto_trade
 from app.config import settings
 from app.database import get_db
 from app.indicators import compute_signals, rsi as compute_rsi
@@ -82,6 +83,14 @@ async def _run_signal_scan() -> None:
                             (symbol, sig["type"], sig["label"], price, rsi_val),
                         )
                         logger.info("New signal: %s %s @ %.2f", symbol, sig["label"], price)
+                        if sig["type"] in ("buy", "sell"):
+                            await maybe_auto_trade(
+                                symbol=symbol,
+                                side=sig["type"],
+                                source="signal",
+                                source_ref=sig["label"],
+                                db=db,
+                            )
 
                 if new_labels:
                     await db.commit()
@@ -196,6 +205,14 @@ async def _run_alert_scan() -> None:
                     ("alert", alert["id"], "email", "user", payload, "pending"),
                 )
                 logger.info("Alert triggered: %s %s %.2f (price=%.2f)", symbol, condition, threshold, price)
+                side = "buy" if condition in ("price_below", "rsi_below") else "sell"
+                await maybe_auto_trade(
+                    symbol=symbol,
+                    side=side,
+                    source="alert",
+                    source_ref=f"{condition}={threshold}",
+                    db=db,
+                )
 
         await db.commit()
 

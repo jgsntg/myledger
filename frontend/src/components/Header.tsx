@@ -5,9 +5,12 @@ interface Props {
   isConnected: boolean
   clock: ClockData | null
   onConnect: () => void
+  tradingMode: 'auto' | 'manual'
+  alpacaEnv: string
+  onToggleTradingMode: () => void
 }
 
-export default function Header({ isConnected, clock, onConnect }: Props) {
+export default function Header({ isConnected, clock, onConnect, tradingMode, alpacaEnv, onToggleTradingMode }: Props) {
   const [time, setTime] = useState(new Date())
 
   useEffect(() => {
@@ -90,6 +93,40 @@ export default function Header({ isConnected, clock, onConnect }: Props) {
         <div>Market: {marketStatus}</div>
 
         <div>{time.toLocaleTimeString('en-US', { hour12: false })}</div>
+
+        <button
+          onClick={onToggleTradingMode}
+          title={alpacaEnv === 'live' ? 'Auto-trading is locked to manual in live mode' : undefined}
+          style={{
+            background: tradingMode === 'auto' ? 'var(--green)' : 'transparent',
+            border: `1px solid ${tradingMode === 'auto' ? 'var(--green)' : 'var(--line)'}`,
+            color: tradingMode === 'auto' ? '#000' : 'var(--ink-soft)',
+            padding: '6px 14px',
+            fontFamily: 'JetBrains Mono, monospace',
+            fontSize: 11,
+            letterSpacing: 1,
+            textTransform: 'uppercase',
+            cursor: alpacaEnv === 'live' ? 'not-allowed' : 'pointer',
+            opacity: alpacaEnv === 'live' ? 0.5 : 1,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 6,
+          }}
+        >
+          {tradingMode === 'auto' && (
+            <span
+              style={{
+                display: 'inline-block',
+                width: 6,
+                height: 6,
+                borderRadius: '50%',
+                background: '#000',
+              }}
+              className="status-dot-live"
+            />
+          )}
+          {tradingMode === 'auto' ? 'AUTO' : 'MANUAL'}
+        </button>
 
         <button
           onClick={onConnect}
