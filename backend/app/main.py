@@ -9,6 +9,7 @@ from app.database import init_db
 from app.routers import (
     account,
     alerts,
+    evaluate,
     filers,
     indicators,
     market,
@@ -57,5 +58,6 @@ for router in [
     alerts.router,
     filers.router,
     settings.router,
+    evaluate.router,
 ]:
     app.include_router(router)

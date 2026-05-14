@@ -103,16 +103,17 @@ CREATE TABLE IF NOT EXISTS system_settings (
 );
 
 CREATE TABLE IF NOT EXISTS auto_trade_log (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  symbol      TEXT NOT NULL,
-  side        TEXT NOT NULL,
-  qty         TEXT NOT NULL,
-  source      TEXT NOT NULL,
-  source_ref  TEXT NOT NULL,
-  order_id    TEXT,
-  status      TEXT NOT NULL,
-  error       TEXT,
-  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  symbol         TEXT NOT NULL,
+  side           TEXT NOT NULL,
+  qty            TEXT NOT NULL,
+  source         TEXT NOT NULL,
+  source_ref     TEXT NOT NULL,
+  order_id       TEXT,
+  status         TEXT NOT NULL,
+  error          TEXT,
+  recommendation TEXT,
+  created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_auto_trade_log_created
   ON auto_trade_log(created_at DESC);
@@ -132,4 +133,9 @@ async def init_db() -> None:
         await db.execute(
             "INSERT OR IGNORE INTO system_settings (key, value) VALUES ('trading_mode', 'manual')"
         )
+        # Safe migration: add recommendation column if the table was created before Phase 3
+        async with db.execute("PRAGMA table_info(auto_trade_log)") as cur:
+            cols = {row[1] async for row in cur}
+        if "recommendation" not in cols:
+            await db.execute("ALTER TABLE auto_trade_log ADD COLUMN recommendation TEXT")
         await db.commit()

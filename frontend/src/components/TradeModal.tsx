@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { AccountData, StockData, TradePayload } from '../types'
+import { AccountData, EvaluationResult, StockData, TradePayload } from '../types'
 import { fmtMoney } from '../lib/format'
 import { api } from '../api/client'
+import TradeEvaluation from './TradeEvaluation'
 
 interface Props {
   symbol: string | null
@@ -32,6 +33,8 @@ export default function TradeModal({
   const [limitPrice, setLimitPrice] = useState('')
   const [feedback, setFeedback] = useState<{ ok: boolean; msg: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [evaluation, setEvaluation] = useState<EvaluationResult | null>(null)
+  const [evalLoading, setEvalLoading] = useState(false)
 
   useEffect(() => {
     if (symbol) {
@@ -40,8 +43,22 @@ export default function TradeModal({
       setOrderType('market')
       setLimitPrice(stockData[symbol]?.price.toFixed(2) ?? '')
       setFeedback(null)
+      setEvaluation(null)
     }
   }, [symbol, presetSide, presetQty])
+
+  // Re-evaluate when symbol or side changes
+  useEffect(() => {
+    if (!symbol) return
+    let cancelled = false
+    setEvaluation(null)
+    setEvalLoading(true)
+    api.evaluateTrade(symbol, side, qty)
+      .then((result) => { if (!cancelled) setEvaluation(result) })
+      .catch(() => {})
+      .finally(() => { if (!cancelled) setEvalLoading(false) })
+    return () => { cancelled = true }
+  }, [symbol, side])
 
   if (!symbol) return null
 
@@ -348,6 +365,9 @@ export default function TradeModal({
             </div>
           ))}
         </div>
+
+        {/* Trade evaluation */}
+        <TradeEvaluation evaluation={evaluation} loading={evalLoading} />
 
         {/* Warning */}
         <div

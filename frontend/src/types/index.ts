@@ -177,6 +177,21 @@ export interface AppSettings {
   alpaca_env: string
 }
 
+export interface EvaluationResult {
+  recommendation: 'proceed' | 'caution' | 'hold'
+  reasons: string[]
+  holding_days: number | null
+  is_long_term: boolean | null
+  days_to_long_term: number | null
+  estimated_gain_usd: number | null
+  estimated_tax_usd: number | null
+  tax_rate_used: number | null
+  wash_sale_risk: boolean
+  has_position: boolean
+  position_qty: number | null
+  avg_entry_price: number | null
+}
+
 export interface AutoTradeEntry {
   id: number
   symbol: string

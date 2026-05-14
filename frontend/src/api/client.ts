@@ -4,6 +4,7 @@ import type {
   AutoTradeEntry,
   Bar,
   ClockData,
+  EvaluationResult,
   FilerHolding,
   FilerRefreshResult,
   FilerTransaction,
@@ -73,6 +74,12 @@ export const api = {
     request<Record<string, unknown>>(`/api/alerts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAlert: (id: number) =>
     request<void>(`/api/alerts/${id}`, { method: 'DELETE' }),
+
+  evaluateTrade: (symbol: string, side: string, qty: string) =>
+    request<EvaluationResult>('/api/evaluate', {
+      method: 'POST',
+      body: JSON.stringify({ symbol, side, qty }),
+    }),
 
   getSettings: () => request<AppSettings>('/api/settings'),
   updateSettings: (body: Partial<AppSettings>) =>

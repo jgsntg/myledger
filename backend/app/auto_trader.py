@@ -17,6 +17,7 @@ import aiosqlite
 
 from app.alpaca import data_get, trading_post
 from app.config import settings as app_settings
+from app.evaluator import evaluate_trade
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,22 @@ async def maybe_auto_trade(
 
     qty = await _compute_qty(symbol, amount_low, amount_high)
 
+    # Pre-flight evaluation (soft gate — logs recommendation but always executes)
+    recommendation: Optional[str] = None
+    try:
+        eval_result = await evaluate_trade(symbol, side, qty)
+        recommendation = eval_result.recommendation
+        if recommendation != "proceed":
+            logger.info(
+                "Auto-trade pre-flight: %s %s — evaluator says '%s': %s",
+                side,
+                symbol,
+                recommendation,
+                "; ".join(eval_result.reasons),
+            )
+    except Exception:
+        logger.warning("Auto-trade: evaluator failed for %s, proceeding anyway", symbol)
+
     order_id: Optional[str] = None
     status = "submitted"
     error: Optional[str] = None
@@ -86,9 +103,9 @@ async def maybe_auto_trade(
 
     await db.execute(
         "INSERT INTO auto_trade_log "
-        "(symbol, side, qty, source, source_ref, order_id, status, error) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (symbol, side, qty, source, source_ref, order_id, status, error),
+        "(symbol, side, qty, source, source_ref, order_id, status, error, recommendation) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (symbol, side, qty, source, source_ref, order_id, status, error, recommendation),
     )
     await db.commit()
 
