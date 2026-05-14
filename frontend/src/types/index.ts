@@ -77,15 +77,6 @@ export interface ClockData {
   timestamp: string
 }
 
-export interface SignalEvent {
-  symbol: string
-  signal_type: string
-  signal_label: string
-  price_at_signal: number
-  rsi_at_signal: number | null
-  triggered_at: string
-}
-
 export interface TradePayload {
   symbol: string
   qty: string
@@ -93,6 +84,45 @@ export interface TradePayload {
   type: 'market' | 'limit'
   time_in_force: string
   limit_price?: string
+}
+
+export interface TrackedFiler {
+  id: number
+  name: string
+  filer_type: 'congress' | 'institution'
+  source_id: string
+  added_at: string
+}
+
+export interface FilerTransaction {
+  id: number
+  filer_id: number
+  symbol: string
+  transaction_type: string
+  amount_low: number | null
+  amount_high: number | null
+  trade_date: string
+  filed_at: string | null
+  fetched_at: string
+}
+
+export interface FilerHolding {
+  id: number
+  filer_id: number
+  symbol: string
+  shares: number | null
+  value_usd: number | null
+  report_date: string
+  fetched_at: string
+}
+
+export interface FilerRefreshResult {
+  filer: TrackedFiler
+  transactions_seen: number
+  transactions_inserted: number
+  holdings_seen: number
+  holdings_inserted: number
+  message?: string
 }
 
 export interface SnapshotData {

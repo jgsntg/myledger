@@ -8,9 +8,17 @@ interface Props {
   onAdd: (symbol: string) => Promise<void>
   onRemove: (symbol: string) => void
   onTrade: (symbol: string) => void
+  heldSymbols?: Set<string>
 }
 
-export default function Watchlist({ symbols, stockData, onAdd, onRemove, onTrade }: Props) {
+export default function Watchlist({
+  symbols,
+  stockData,
+  onAdd,
+  onRemove,
+  onTrade,
+  heldSymbols,
+}: Props) {
   const [input, setInput] = useState('')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
@@ -177,6 +185,7 @@ export default function Watchlist({ symbols, stockData, onAdd, onRemove, onTrade
               onToggle={() => setExpanded(expanded === sym ? null : sym)}
               onTrade={onTrade}
               onRemove={onRemove}
+              heldByFiler={heldSymbols?.has(sym)}
             />
           ))}
         </div>

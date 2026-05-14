@@ -9,6 +9,7 @@ interface Props {
   onToggle: () => void
   onTrade: (symbol: string) => void
   onRemove: (symbol: string) => void
+  heldByFiler?: boolean
 }
 
 function SignalBadge({ sig }: { sig: Signal }) {
@@ -49,7 +50,15 @@ function SignalBadge({ sig }: { sig: Signal }) {
   )
 }
 
-export default function StockRow({ symbol, data, isExpanded, onToggle, onTrade, onRemove }: Props) {
+export default function StockRow({
+  symbol,
+  data,
+  isExpanded,
+  onToggle,
+  onTrade,
+  onRemove,
+  heldByFiler = false,
+}: Props) {
   const dClass = deltaClass(data?.change ?? null)
   const priceColor =
     dClass === 'pos' ? 'var(--green)' : dClass === 'neg' ? 'var(--red)' : 'var(--ink)'
@@ -83,9 +92,30 @@ export default function StockRow({ symbol, data, isExpanded, onToggle, onTrade, 
               fontSize: 20,
               fontWeight: 500,
               letterSpacing: '-0.3px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: 8,
             }}
           >
-            {symbol}
+            <span>{symbol}</span>
+            {heldByFiler && (
+              <span
+                title="Held by a tracked 13F filer"
+                style={{
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 9,
+                  letterSpacing: 1,
+                  textTransform: 'uppercase',
+                  color: '#7fb7ff',
+                  border: '1px solid rgba(127, 183, 255, 0.4)',
+                  background: 'rgba(127, 183, 255, 0.1)',
+                  padding: '3px 6px',
+                  borderRadius: 2,
+                }}
+              >
+                13F
+              </span>
+            )}
           </div>
           {data && (
             <div

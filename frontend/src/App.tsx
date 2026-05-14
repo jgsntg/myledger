@@ -7,11 +7,10 @@ import SignalsLog from './components/SignalsLog'
 import PositionsTable from './components/PositionsTable'
 import OrdersTable from './components/OrdersTable'
 import TradeModal from './components/TradeModal'
+import TrackedFilersSection from './components/TrackedFilersSection'
 import {
   AccountData,
-  Bar,
   ClockData,
-  Indicators,
   Order,
   Position,
   SignalLogEntry,
@@ -23,6 +22,7 @@ interface TradeTarget {
   symbol: string
   presetSide?: 'buy' | 'sell'
   presetQty?: string
+  sourceNote?: string
 }
 
 let logIdCounter = 0
@@ -39,6 +39,7 @@ export default function App() {
   const [clock, setClock] = useState<ClockData | null>(null)
   const [signalLog, setSignalLog] = useState<SignalLogEntry[]>([])
   const [tradeTarget, setTradeTarget] = useState<TradeTarget | null>(null)
+  const [heldSymbols, setHeldSymbols] = useState<Set<string>>(new Set())
   const [connected, setConnected] = useState(false)
 
   // Track previous signals per symbol to detect transitions
@@ -86,8 +87,8 @@ export default function App() {
           syms.map(async (sym) => {
             try {
               const [barsRaw, indRaw] = await Promise.all([
-                api.getBars(sym, 365) as Promise<Bar[]>,
-                api.getIndicators(sym) as Promise<Indicators>,
+                api.getBars(sym, 365),
+                api.getIndicators(sym),
               ])
 
               const snap = snapshots[sym]
@@ -148,7 +149,7 @@ export default function App() {
       try {
         const [watchlist, clockData] = await Promise.all([
           api.getWatchlist(),
-          api.getClock() as Promise<ClockData>,
+          api.getClock(),
         ])
         const syms = watchlist.map((e: WatchlistEntry) => e.symbol)
         setSymbols(syms)
@@ -169,7 +170,7 @@ export default function App() {
   useEffect(() => {
     const clockTimer = setInterval(async () => {
       try {
-        const c = (await api.getClock()) as ClockData
+        const c = await api.getClock()
         setClock(c)
       } catch {}
     }, 30_000)
@@ -208,8 +209,13 @@ export default function App() {
     delete prevSignals.current[symbol]
   }
 
-  function openTrade(symbol: string, presetSide?: 'buy' | 'sell', presetQty?: string) {
-    setTradeTarget({ symbol, presetSide, presetQty })
+  function openTrade(
+    symbol: string,
+    presetSide?: 'buy' | 'sell',
+    presetQty?: string,
+    sourceNote?: string,
+  ) {
+    setTradeTarget({ symbol, presetSide, presetQty, sourceNote })
   }
 
   return (
@@ -232,6 +238,7 @@ export default function App() {
             onAdd={handleAddSymbol}
             onRemove={handleRemoveSymbol}
             onTrade={(sym) => openTrade(sym)}
+            heldSymbols={heldSymbols}
           />
 
           <SignalsLog entries={signalLog} />
@@ -243,6 +250,11 @@ export default function App() {
         />
 
         <OrdersTable orders={orders} />
+
+        <TrackedFilersSection
+          onMirror={(symbol, side, qty, sourceNote) => openTrade(symbol, side, qty, sourceNote)}
+          onHeldSymbolsChange={setHeldSymbols}
+        />
 
         <div
           style={{
@@ -268,6 +280,7 @@ export default function App() {
           symbol={tradeTarget.symbol}
           presetSide={tradeTarget.presetSide}
           presetQty={tradeTarget.presetQty}
+          sourceNote={tradeTarget.sourceNote}
           stockData={stockData}
           account={account}
           onClose={() => setTradeTarget(null)}

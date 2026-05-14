@@ -7,6 +7,7 @@ interface Props {
   symbol: string | null
   presetSide?: 'buy' | 'sell'
   presetQty?: string
+  sourceNote?: string
   stockData: Record<string, StockData | null>
   account: AccountData | null
   onClose: () => void
@@ -19,6 +20,7 @@ export default function TradeModal({
   symbol,
   presetSide,
   presetQty,
+  sourceNote,
   stockData,
   account,
   onClose,
@@ -153,6 +155,24 @@ export default function TradeModal({
         <p style={{ color: 'var(--ink-soft)', fontSize: 13, marginBottom: 20, lineHeight: 1.6 }}>
           Paper trading — no real money at risk.
         </p>
+
+        {sourceNote && (
+          <div
+            style={{
+              borderLeft: '2px solid var(--accent)',
+              background: 'rgba(212, 165, 116, 0.08)',
+              color: 'var(--ink-soft)',
+              padding: '10px 14px',
+              marginBottom: 16,
+              fontSize: 12,
+              lineHeight: 1.5,
+              fontFamily: 'Fraunces, Georgia, serif',
+              fontStyle: 'italic',
+            }}
+          >
+            {sourceNote}
+          </div>
+        )}
 
         {/* Side toggle */}
         <div

@@ -24,9 +24,12 @@ _AMOUNT_RE = re.compile(r'\$([\d,]+)(?:\s*[-–]\s*\$([\d,]+))?')
 
 async def startup() -> None:
     global _client
+    headers = {}
+    if settings.quiver_api_token:
+        headers["Authorization"] = f"Token {settings.quiver_api_token}"
     _client = httpx.AsyncClient(
         base_url=_BASE_URL,
-        headers={"Authorization": f"Token {settings.quiver_api_token}"},
+        headers=headers,
         timeout=15.0,
     )
 
@@ -60,6 +63,12 @@ def parse_amount_range(range_str: str | None) -> tuple[Optional[float], Optional
 async def fetch_congress_trades(slug: str) -> list[dict[str, Any]]:
     """Fetch all disclosed trades for a congressional member by Quiver slug."""
     assert _client, "Quiver client not initialized"
+    if not settings.quiver_api_token:
+        raise httpx.HTTPStatusError(
+            "Quiver token missing — check QUIVER_API_TOKEN in your .env",
+            request=httpx.Request("GET", f"{_BASE_URL}/beta/live/congresstrading/{slug}"),
+            response=httpx.Response(401),
+        )
     try:
         r = await _client.get(f"/beta/live/congresstrading/{slug}")
         if r.status_code == 401:

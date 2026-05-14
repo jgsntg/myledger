@@ -4,9 +4,19 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import alpaca
+from app import alpaca, quiver
 from app.database import init_db
-from app.routers import account, alerts, indicators, market, orders, positions, signals, watchlist
+from app.routers import (
+    account,
+    alerts,
+    filers,
+    indicators,
+    market,
+    orders,
+    positions,
+    signals,
+    watchlist,
+)
 from app.scanner import start_scanners
 
 logging.basicConfig(level=logging.INFO)
@@ -16,11 +26,13 @@ logging.basicConfig(level=logging.INFO)
 async def lifespan(app: FastAPI):
     await init_db()
     await alpaca.startup()
+    await quiver.startup()
     scanner_tasks = start_scanners()
     yield
     for task in scanner_tasks:
         task.cancel()
     await alpaca.shutdown()
+    await quiver.shutdown()
 
 
 app = FastAPI(title="Ledger API", lifespan=lifespan)
@@ -42,5 +54,6 @@ for router in [
     indicators.router,
     signals.router,
     alerts.router,
+    filers.router,
 ]:
     app.include_router(router)
