@@ -78,8 +78,9 @@ export default function MarketInsights({
     }
   }
 
-  const entries: InsightEntry[] =
+  const rawEntries: InsightEntry[] =
     data ? (period === '7' ? data.d7 : period === '14' ? data.d14 : data.d30) : []
+  const entries = [...rawEntries].sort((a, b) => b.return_pct - a.return_pct)
 
   const extraSymbols = settings.insights_extra_symbols
     ? settings.insights_extra_symbols.split(',').map((s) => s.trim()).filter(Boolean)

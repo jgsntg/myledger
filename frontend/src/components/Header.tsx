@@ -4,13 +4,13 @@ import { ClockData } from '../types'
 interface Props {
   isConnected: boolean
   clock: ClockData | null
-  onConnect: () => void
+  onOpenSettings: () => void
   tradingMode: 'auto' | 'manual'
   alpacaEnv: string
   onToggleTradingMode: () => void
 }
 
-export default function Header({ isConnected, clock, onConnect, tradingMode, alpacaEnv, onToggleTradingMode }: Props) {
+export default function Header({ isConnected, clock, onOpenSettings, tradingMode, alpacaEnv, onToggleTradingMode }: Props) {
   const [time, setTime] = useState(new Date())
 
   useEffect(() => {
@@ -25,17 +25,14 @@ export default function Header({ isConnected, clock, onConnect, tradingMode, alp
     : '—'
 
   return (
-    <header
+    <div
       style={{
-        borderBottom: '1px solid var(--line)',
-        padding: '18px 32px',
+        padding: '18px 32px 14px',
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        background: 'var(--bg)',
-        position: 'sticky',
-        top: 0,
-        zIndex: 50,
+        maxWidth: 1600,
+        margin: '0 auto',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 14 }}>
@@ -129,7 +126,7 @@ export default function Header({ isConnected, clock, onConnect, tradingMode, alp
         </button>
 
         <button
-          onClick={onConnect}
+          onClick={onOpenSettings}
           style={{
             background: 'transparent',
             border: '1px solid var(--line)',
@@ -145,6 +142,6 @@ export default function Header({ isConnected, clock, onConnect, tradingMode, alp
           ⚙ Settings
         </button>
       </div>
-    </header>
+    </div>
   )
 }

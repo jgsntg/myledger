@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api/client'
-import Header from './components/Header'
-import PortfolioSummary from './components/PortfolioSummary'
-import Watchlist from './components/Watchlist'
-import SignalsLog from './components/SignalsLog'
-import PositionsTable from './components/PositionsTable'
-import OrdersTable from './components/OrdersTable'
+import AppHeader, { TABS, type TabId } from './components/AppHeader'
+import PortfolioStrip from './components/PortfolioStrip'
+import SettingsDrawer from './components/SettingsDrawer'
 import TradeModal from './components/TradeModal'
-import TrackedFilersSection from './components/TrackedFilersSection'
-import AutoTradeLog from './components/AutoTradeLog'
-import SettingsPanel from './components/SettingsPanel'
-import MarketInsights from './components/MarketInsights'
+import WatchlistTab from './components/tabs/WatchlistTab'
+import PositionsTab from './components/tabs/PositionsTab'
+import FilersTab from './components/tabs/FilersTab'
+import DiscoverTab from './components/tabs/DiscoverTab'
 import {
   AccountData,
   AppSettings,
@@ -57,6 +54,14 @@ export default function App() {
   })
   const [showSettings, setShowSettings] = useState(false)
   const [autoTrades, setAutoTrades] = useState<AutoTradeEntry[]>([])
+  const [activeTab, setActiveTab] = useState<TabId>(() => {
+    const hash = window.location.hash.slice(1) as TabId
+    return TABS.some((t) => t.id === hash) ? hash : 'watchlist'
+  })
+
+  useEffect(() => {
+    window.location.hash = activeTab
+  }, [activeTab])
 
   // Track previous signals per symbol to detect transitions
   const prevSignals = useRef<Record<string, Set<string>>>({})
@@ -258,73 +263,71 @@ export default function App() {
     setTradeTarget({ symbol, presetSide, presetQty, sourceNote })
   }
 
+  const autoOrderIds = new Set(
+    autoTrades.map((t) => t.order_id).filter(Boolean) as string[],
+  )
+
   return (
     <>
-      <Header
+      <AppHeader
         isConnected={connected}
         clock={clock}
-        onConnect={() => setShowSettings((v) => !v)}
         tradingMode={appSettings.trading_mode}
         alpacaEnv={appSettings.alpaca_env}
         onToggleTradingMode={toggleTradingMode}
+        onOpenSettings={() => setShowSettings(true)}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
       />
 
-      <div style={{ maxWidth: 1600, margin: '0 auto', padding: '32px' }}>
-        {showSettings && (
-          <SettingsPanel
-            key={`${appSettings.default_trade_usd}-${appSettings.tax_short_term_rate}-${appSettings.tax_long_term_rate}-${appSettings.tax_long_term_days}`}
-            settings={appSettings}
-            onSave={async (patch) => {
-              const updated = await api.updateSettings(patch)
-              setAppSettings(updated)
-            }}
-          />
-        )}
-        <PortfolioSummary account={account} positions={positions} />
+      <main
+        style={{
+          maxWidth: 1600,
+          margin: '0 auto',
+          width: '100%',
+          padding: '28px 32px 80px',
+        }}
+      >
+        <PortfolioStrip account={account} positions={positions} />
 
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: '1fr 380px',
-            gap: 28,
-          }}
-        >
-          <Watchlist
+        {activeTab === 'watchlist' && (
+          <WatchlistTab
             symbols={symbols}
             stockData={stockData}
+            signalLog={signalLog}
+            heldSymbols={heldSymbols}
             onAdd={handleAddSymbol}
             onRemove={handleRemoveSymbol}
             onTrade={(sym) => openTrade(sym)}
-            heldSymbols={heldSymbols}
           />
-
-          <SignalsLog entries={signalLog} />
-        </div>
-
-        <PositionsTable
-          positions={positions}
-          onTrade={(sym, side, qty) => openTrade(sym, side, qty)}
-        />
-
-        <OrdersTable
-          orders={orders}
-          autoOrderIds={new Set(autoTrades.map((t) => t.order_id).filter(Boolean) as string[])}
-        />
-
-        <TrackedFilersSection
-          onMirror={(symbol, side, qty, sourceNote) => openTrade(symbol, side, qty, sourceNote)}
-          onHeldSymbolsChange={setHeldSymbols}
-        />
-
-        <AutoTradeLog entries={autoTrades} tradingMode={appSettings.trading_mode} />
-
-        <MarketInsights
-          settings={appSettings}
-          watchlistSymbols={symbols}
-          onSettingsUpdate={setAppSettings}
-          onAddToWatchlist={handleAddSymbol}
-          onTrade={(sym) => openTrade(sym)}
-        />
+        )}
+        {activeTab === 'positions' && (
+          <PositionsTab
+            positions={positions}
+            orders={orders}
+            autoOrderIds={autoOrderIds}
+            onTrade={(sym, side, qty) => openTrade(sym, side, qty)}
+          />
+        )}
+        {activeTab === 'filers' && (
+          <FilersTab
+            autoTrades={autoTrades}
+            tradingMode={appSettings.trading_mode}
+            onMirror={(symbol, side, qty, sourceNote) =>
+              openTrade(symbol, side, qty, sourceNote)
+            }
+            onHeldSymbolsChange={setHeldSymbols}
+          />
+        )}
+        {activeTab === 'discover' && (
+          <DiscoverTab
+            settings={appSettings}
+            watchlistSymbols={symbols}
+            onSettingsUpdate={setAppSettings}
+            onAddToWatchlist={handleAddSymbol}
+            onTrade={(sym) => openTrade(sym)}
+          />
+        )}
 
         <div
           style={{
@@ -343,7 +346,17 @@ export default function App() {
           math says about the past — not what the market will do next. This dashboard is a thinking
           aid, not financial advice. Trade your own judgment.
         </div>
-      </div>
+      </main>
+
+      <SettingsDrawer
+        open={showSettings}
+        onClose={() => setShowSettings(false)}
+        settings={appSettings}
+        onSave={async (patch) => {
+          const updated = await api.updateSettings(patch)
+          setAppSettings(updated)
+        }}
+      />
 
       {tradeTarget && (
         <TradeModal

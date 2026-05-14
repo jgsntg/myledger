@@ -132,7 +132,7 @@ async def _fetch_and_rank(universe: List[str]) -> TopPerformersResponse:
                 )
             )
 
-    top_n = 10
+    top_n = 50
     d7 = sorted(results[7], key=lambda e: e.return_pct, reverse=True)[:top_n]
     d14 = sorted(results[14], key=lambda e: e.return_pct, reverse=True)[:top_n]
     d30 = sorted(results[30], key=lambda e: e.return_pct, reverse=True)[:top_n]

@@ -25,16 +25,24 @@ const hdr: React.CSSProperties = {
 
 export default function AutoTradeLog({ entries, tradingMode }: Props) {
   return (
-    <section style={{ marginTop: 32 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+    <section>
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'baseline',
+          marginBottom: 16,
+          paddingBottom: 12,
+          borderBottom: '1px solid var(--line)',
+        }}
+      >
         <h2
           style={{
-            fontFamily: 'JetBrains Mono, monospace',
-            fontSize: 11,
-            letterSpacing: 2,
-            textTransform: 'uppercase',
-            color: 'var(--ink-mute)',
-            fontWeight: 500,
+            fontFamily: 'Fraunces, Georgia, serif',
+            fontWeight: 400,
+            fontSize: 26,
+            fontStyle: 'italic',
+            letterSpacing: '-0.3px',
           }}
         >
           Auto-Trade Log
