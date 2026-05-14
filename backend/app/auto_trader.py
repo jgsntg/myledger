@@ -64,12 +64,34 @@ async def maybe_auto_trade(
         logger.info("Auto-trade daily cap reached for %s", symbol)
         return
 
-    qty = await _compute_qty(symbol, amount_low, amount_high)
+    qty = await _compute_qty(symbol, amount_low, amount_high, db)
+
+    # Read tax settings for evaluator
+    short_term_rate, long_term_rate, long_term_days = 0.37, 0.20, 365
+    async with db.execute(
+        "SELECT key, value FROM system_settings "
+        "WHERE key IN ('tax_short_term_rate', 'tax_long_term_rate', 'tax_long_term_days')"
+    ) as cur:
+        for row in await cur.fetchall():
+            try:
+                if row["key"] == "tax_short_term_rate":
+                    short_term_rate = float(row["value"])
+                elif row["key"] == "tax_long_term_rate":
+                    long_term_rate = float(row["value"])
+                elif row["key"] == "tax_long_term_days":
+                    long_term_days = int(float(row["value"]))
+            except (ValueError, TypeError):
+                pass
 
     # Pre-flight evaluation (soft gate — logs recommendation but always executes)
     recommendation: Optional[str] = None
     try:
-        eval_result = await evaluate_trade(symbol, side, qty)
+        eval_result = await evaluate_trade(
+            symbol, side, qty,
+            short_term_rate=short_term_rate,
+            long_term_rate=long_term_rate,
+            long_term_days=long_term_days,
+        )
         recommendation = eval_result.recommendation
         if recommendation != "proceed":
             logger.info(
@@ -114,9 +136,19 @@ async def _compute_qty(
     symbol: str,
     amount_low: Optional[float],
     amount_high: Optional[float],
+    db: aiosqlite.Connection,
 ) -> str:
+    trade_usd: Optional[float] = None
     if amount_low is None:
-        return "1"
+        async with db.execute(
+            "SELECT value FROM system_settings WHERE key = 'default_trade_usd'"
+        ) as cur:
+            row = await cur.fetchone()
+        if row:
+            try:
+                trade_usd = float(row["value"])
+            except (ValueError, TypeError):
+                pass
 
     try:
         snap = await data_get(
@@ -131,6 +163,9 @@ async def _compute_qty(
             or (snap_data.get("dailyBar") or {}).get("c")
         )
         if price and price > 0:
+            if amount_low is None:
+                usd = trade_usd if trade_usd is not None else 500.0
+                return str(max(1, round(usd / price)))
             midpoint = (amount_low + amount_high) / 2 if amount_high else amount_low * 2
             return str(max(1, round(midpoint / price)))
     except Exception:

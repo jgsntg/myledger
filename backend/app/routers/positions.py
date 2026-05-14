@@ -1,5 +1,5 @@
-from fastapi import APIRouter, Depends
 import httpx
+from fastapi import APIRouter, Depends
 
 from app.alpaca import trading_get
 from app.auth import require_token

@@ -1,4 +1,5 @@
 import aiosqlite
+
 from app.config import settings
 
 _DDL = """
@@ -130,9 +131,18 @@ async def init_db() -> None:
     async with aiosqlite.connect(settings.database_url) as db:
         db.row_factory = aiosqlite.Row
         await db.executescript(_DDL)
-        await db.execute(
-            "INSERT OR IGNORE INTO system_settings (key, value) VALUES ('trading_mode', 'manual')"
-        )
+        for _key, _val in [
+            ("trading_mode", "manual"),
+            ("default_trade_usd", "500"),
+            ("tax_short_term_rate", "0.37"),
+            ("tax_long_term_rate", "0.20"),
+            ("tax_long_term_days", "365"),
+            ("insights_extra_symbols", ""),
+        ]:
+            await db.execute(
+                "INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)",
+                (_key, _val),
+            )
         # Safe migration: add recommendation column if the table was created before Phase 3
         async with db.execute("PRAGMA table_info(auto_trade_log)") as cur:
             cols = {row[1] async for row in cur}

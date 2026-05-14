@@ -10,6 +10,7 @@ import type {
   FilerTransaction,
   Indicators,
   Order,
+  TopPerformers,
   TrackedFiler,
   WatchlistEntry,
 } from '../types'
@@ -28,6 +29,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     const text = await res.text()
+    try {
+      const json = JSON.parse(text)
+      if (typeof json?.detail === 'string') throw new Error(json.detail)
+    } catch (inner) {
+      if (inner instanceof SyntaxError === false) throw inner
+    }
     throw new Error(`${res.status}: ${text}`)
   }
 
@@ -86,6 +93,9 @@ export const api = {
     request<AppSettings>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
   getAutoTrades: (limit = 50) =>
     request<AutoTradeEntry[]>(`/api/auto-trades?limit=${limit}`),
+
+  getInsightsTopPerformers: (refresh = false) =>
+    request<TopPerformers>(`/api/insights/top-performers${refresh ? '?refresh=true' : ''}`),
 
   getFilers: () => request<TrackedFiler[]>('/api/filers'),
   createFiler: (body: { name: string; filer_type: string; source_id: string }) =>

@@ -20,7 +20,8 @@ from app.alpaca import data_get, trading_get
 from app.auto_trader import maybe_auto_trade
 from app.config import settings
 from app.database import get_db
-from app.indicators import compute_signals, rsi as compute_rsi
+from app.indicators import compute_signals
+from app.indicators import rsi as compute_rsi
 from app.routers.market import _fetch_bars_with_cache
 
 logger = logging.getLogger(__name__)

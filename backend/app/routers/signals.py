@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, Query
-
 import aiosqlite
+from fastapi import APIRouter, Depends, Query
 
 from app.auth import require_token
 from app.database import get_db

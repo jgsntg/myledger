@@ -175,6 +175,25 @@ export interface SignalLogEntry {
 export interface AppSettings {
   trading_mode: 'auto' | 'manual'
   alpaca_env: string
+  default_trade_usd: number
+  tax_short_term_rate: number
+  tax_long_term_rate: number
+  tax_long_term_days: number
+  insights_extra_symbols: string
+}
+
+export interface InsightEntry {
+  symbol: string
+  return_pct: number
+  current_price: number
+}
+
+export interface TopPerformers {
+  d7: InsightEntry[]
+  d14: InsightEntry[]
+  d30: InsightEntry[]
+  refreshed_at: string
+  universe_size: number
 }
 
 export interface EvaluationResult {

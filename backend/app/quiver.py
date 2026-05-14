@@ -6,8 +6,8 @@ Free tier endpoint: GET /beta/live/congresstrading/{slug}
 
 from __future__ import annotations
 
-import re
 import logging
+import re
 from typing import Any, Optional
 
 import httpx

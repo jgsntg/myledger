@@ -9,6 +9,8 @@ import OrdersTable from './components/OrdersTable'
 import TradeModal from './components/TradeModal'
 import TrackedFilersSection from './components/TrackedFilersSection'
 import AutoTradeLog from './components/AutoTradeLog'
+import SettingsPanel from './components/SettingsPanel'
+import MarketInsights from './components/MarketInsights'
 import {
   AccountData,
   AppSettings,
@@ -44,7 +46,16 @@ export default function App() {
   const [tradeTarget, setTradeTarget] = useState<TradeTarget | null>(null)
   const [heldSymbols, setHeldSymbols] = useState<Set<string>>(new Set())
   const [connected, setConnected] = useState(false)
-  const [appSettings, setAppSettings] = useState<AppSettings>({ trading_mode: 'manual', alpaca_env: 'paper' })
+  const [appSettings, setAppSettings] = useState<AppSettings>({
+    trading_mode: 'manual',
+    alpaca_env: 'paper',
+    default_trade_usd: 500,
+    tax_short_term_rate: 0.37,
+    tax_long_term_rate: 0.20,
+    tax_long_term_days: 365,
+    insights_extra_symbols: '',
+  })
+  const [showSettings, setShowSettings] = useState(false)
   const [autoTrades, setAutoTrades] = useState<AutoTradeEntry[]>([])
 
   // Track previous signals per symbol to detect transitions
@@ -252,13 +263,23 @@ export default function App() {
       <Header
         isConnected={connected}
         clock={clock}
-        onConnect={() => {}}
+        onConnect={() => setShowSettings((v) => !v)}
         tradingMode={appSettings.trading_mode}
         alpacaEnv={appSettings.alpaca_env}
         onToggleTradingMode={toggleTradingMode}
       />
 
       <div style={{ maxWidth: 1600, margin: '0 auto', padding: '32px' }}>
+        {showSettings && (
+          <SettingsPanel
+            key={`${appSettings.default_trade_usd}-${appSettings.tax_short_term_rate}-${appSettings.tax_long_term_rate}-${appSettings.tax_long_term_days}`}
+            settings={appSettings}
+            onSave={async (patch) => {
+              const updated = await api.updateSettings(patch)
+              setAppSettings(updated)
+            }}
+          />
+        )}
         <PortfolioSummary account={account} positions={positions} />
 
         <div
@@ -285,7 +306,10 @@ export default function App() {
           onTrade={(sym, side, qty) => openTrade(sym, side, qty)}
         />
 
-        <OrdersTable orders={orders} />
+        <OrdersTable
+          orders={orders}
+          autoOrderIds={new Set(autoTrades.map((t) => t.order_id).filter(Boolean) as string[])}
+        />
 
         <TrackedFilersSection
           onMirror={(symbol, side, qty, sourceNote) => openTrade(symbol, side, qty, sourceNote)}
@@ -293,6 +317,14 @@ export default function App() {
         />
 
         <AutoTradeLog entries={autoTrades} tradingMode={appSettings.trading_mode} />
+
+        <MarketInsights
+          settings={appSettings}
+          watchlistSymbols={symbols}
+          onSettingsUpdate={setAppSettings}
+          onAddToWatchlist={handleAddSymbol}
+          onTrade={(sym) => openTrade(sym)}
+        />
 
         <div
           style={{

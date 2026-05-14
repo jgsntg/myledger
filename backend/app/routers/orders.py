@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
 from typing import Optional
 
 import httpx
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from app.alpaca import trading_get, trading_post
 from app.auth import require_token

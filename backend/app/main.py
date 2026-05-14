@@ -12,6 +12,7 @@ from app.routers import (
     evaluate,
     filers,
     indicators,
+    insights,
     market,
     orders,
     positions,
@@ -59,5 +60,6 @@ for router in [
     filers.router,
     settings.router,
     evaluate.router,
+    insights.router,
 ]:
     app.include_router(router)

@@ -1,7 +1,6 @@
+import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-
-import aiosqlite
 
 from app.alpaca import validate_symbol
 from app.auth import require_token

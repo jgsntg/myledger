@@ -1,8 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel
 from typing import Optional
 
 import aiosqlite
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel
 
 from app.auth import require_token
 from app.database import get_db

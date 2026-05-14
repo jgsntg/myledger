@@ -3,6 +3,7 @@ import { fmtMoney } from '../lib/format'
 
 interface Props {
   orders: Order[]
+  autoOrderIds?: Set<string>
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -15,7 +16,7 @@ const STATUS_COLOR: Record<string, string> = {
   done_for_day: 'var(--ink-soft)',
 }
 
-export default function OrdersTable({ orders }: Props) {
+export default function OrdersTable({ orders, autoOrderIds }: Props) {
   return (
     <section style={{ marginTop: 40 }}>
       <div
@@ -76,7 +77,7 @@ export default function OrdersTable({ orders }: Props) {
         >
           <thead>
             <tr>
-              {['Submitted', 'Symbol', 'Side', 'Qty', 'Type', 'Fill Price', 'Status'].map((h) => (
+              {['Submitted', 'Symbol', 'Side', 'Qty', 'Type', 'Fill Price', 'Status', 'Source'].map((h) => (
                 <th
                   key={h}
                   style={{
@@ -111,6 +112,7 @@ export default function OrdersTable({ orders }: Props) {
                 ? fmtMoney(parseFloat(o.filled_avg_price))
                 : '—'
               const statusColor = STATUS_COLOR[o.status] ?? 'var(--ink-soft)'
+              const isAuto = autoOrderIds?.has(o.id) ?? false
 
               return (
                 <tr key={o.id}>
@@ -199,6 +201,39 @@ export default function OrdersTable({ orders }: Props) {
                       }}
                     >
                       {o.status.replace('_', ' ')}
+                    </td>,
+                    <td
+                      key="source"
+                      style={{
+                        padding: '14px 18px',
+                        borderBottom: '1px solid var(--line-soft)',
+                      }}
+                    >
+                      {isAuto ? (
+                        <span
+                          style={{
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: 9,
+                            letterSpacing: 1,
+                            padding: '2px 6px',
+                            border: '1px solid var(--green)',
+                            color: 'var(--green)',
+                          }}
+                        >
+                          AUTO
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: 9,
+                            letterSpacing: 1,
+                            color: 'var(--ink-mute)',
+                          }}
+                        >
+                          manual
+                        </span>
+                      )}
                     </td>,
                   ]}
                 </tr>

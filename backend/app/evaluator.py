@@ -45,7 +45,15 @@ class EvaluationResult(BaseModel):
     avg_entry_price: Optional[float]
 
 
-async def evaluate_trade(symbol: str, side: str, qty_str: str) -> EvaluationResult:
+async def evaluate_trade(
+    symbol: str,
+    side: str,
+    qty_str: str,
+    *,
+    short_term_rate: float = _SHORT_TERM_RATE,
+    long_term_rate: float = _LONG_TERM_RATE,
+    long_term_days: int = _LONG_TERM_DAYS,
+) -> EvaluationResult:
     """Evaluate a potential trade. Never raises — worst case returns a 'proceed' with no detail."""
     symbol = symbol.upper()
     try:
@@ -57,7 +65,10 @@ async def evaluate_trade(symbol: str, side: str, qty_str: str) -> EvaluationResu
     now = datetime.now(timezone.utc)
 
     if side == "sell":
-        return _eval_sell(symbol, qty, positions, orders, current_price, now)
+        return _eval_sell(
+            symbol, qty, positions, orders, current_price, now,
+            short_term_rate, long_term_rate, long_term_days,
+        )
     return _eval_buy(symbol, qty, positions, orders, current_price, now)
 
 
@@ -114,6 +125,9 @@ def _eval_sell(
     orders: list,
     current_price: Optional[float],
     now: datetime,
+    short_term_rate: float = _SHORT_TERM_RATE,
+    long_term_rate: float = _LONG_TERM_RATE,
+    long_term_days: int = _LONG_TERM_DAYS,
 ) -> EvaluationResult:
     position = _find_position(positions, symbol)
     has_position = position is not None
@@ -163,10 +177,10 @@ def _eval_sell(
     is_long_term: Optional[bool] = None
     days_to_lt: Optional[int] = None
     if holding_days is not None:
-        is_long_term = holding_days >= _LONG_TERM_DAYS
+        is_long_term = holding_days >= long_term_days
         result.is_long_term = is_long_term
         if not is_long_term:
-            days_to_lt = _LONG_TERM_DAYS - holding_days
+            days_to_lt = long_term_days - holding_days
             result.days_to_long_term = days_to_lt
 
     # Gain and tax estimate
@@ -175,31 +189,30 @@ def _eval_sell(
         result.estimated_gain_usd = gain_total
 
         if gain_total > 0:
-            rate = _LONG_TERM_RATE if is_long_term else _SHORT_TERM_RATE
+            rate = long_term_rate if is_long_term else short_term_rate
             result.estimated_tax_usd = round(gain_total * rate, 2)
             result.tax_rate_used = rate
 
             if is_long_term:
                 result.reasons.append(
                     f"Long-term position (held {holding_days}d). "
-                    f"Favorable {int(_LONG_TERM_RATE * 100)}% rate — est. tax ${result.estimated_tax_usd:,.0f}."
+                    f"Favorable {int(long_term_rate * 100)}% rate — est. tax ${result.estimated_tax_usd:,.0f}."
                 )
             elif days_to_lt is not None:
                 if days_to_lt <= 30:
-                    # Savings from waiting = (short_rate - long_rate) * gain
-                    savings = round(gain_total * (_SHORT_TERM_RATE - _LONG_TERM_RATE), 2)
+                    savings = round(gain_total * (short_term_rate - long_term_rate), 2)
                     result.recommendation = "hold"
                     result.reasons.append(
                         f"Only {days_to_lt}d until long-term threshold. "
                         f"Waiting saves ~${savings:,.0f} in taxes "
-                        f"({int(_SHORT_TERM_RATE * 100)}% → {int(_LONG_TERM_RATE * 100)}%)."
+                        f"({int(short_term_rate * 100)}% → {int(long_term_rate * 100)}%)."
                     )
                 else:
                     result.recommendation = "caution"
                     result.reasons.append(
                         f"Short-term gain (held {holding_days}d, {days_to_lt}d to qualify). "
-                        f"Tax rate {int(_SHORT_TERM_RATE * 100)}% vs "
-                        f"{int(_LONG_TERM_RATE * 100)}% long-term — est. tax ${result.estimated_tax_usd:,.0f}."
+                        f"Tax rate {int(short_term_rate * 100)}% vs "
+                        f"{int(long_term_rate * 100)}% long-term — est. tax ${result.estimated_tax_usd:,.0f}."
                     )
         elif gain_total < 0:
             result.wash_sale_risk = True
