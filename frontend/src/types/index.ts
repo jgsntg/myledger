@@ -115,6 +115,25 @@ export interface StockData {
   snapshot: SnapshotData | null
 }
 
+export interface SignalEvent {
+  symbol: string
+  signal_type: 'buy' | 'sell' | 'hold'
+  signal_label: string
+  price_at_signal: number
+  rsi_at_signal: number | null
+  triggered_at: string
+}
+
+export interface Alert {
+  id: number
+  symbol: string
+  condition: 'price_above' | 'price_below' | 'rsi_above' | 'rsi_below'
+  threshold: number
+  active: number   // 0 | 1 from SQLite
+  created_at: string
+  last_triggered_at: string | null
+}
+
 export interface SignalLogEntry {
   id: string
   time: Date

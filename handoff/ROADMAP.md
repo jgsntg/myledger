@@ -22,9 +22,11 @@ Phased delivery. Don't try to ship all of this at once. Each phase produces some
 
 **Done when:** user can `docker-compose up`, open localhost, place a paper trade, see it fill, and close the position — without keys ever leaving the backend.
 
-## Phase 2: Persistent intelligence
+## Phase 2: Persistent intelligence + 13F holdings
 
-**Goal:** the app becomes more useful than just a thin Alpaca client.
+**Goal:** the app becomes more useful than just a thin Alpaca client, and adds the ability to track what politicians and fund managers are holding.
+
+### 2a — Signal persistence & alerts
 
 1. Backend: signal scanner runs every 60s during market hours
 2. Backend: write to `signal_events` on signal transitions (off → on)
@@ -36,6 +38,60 @@ Phased delivery. Don't try to ship all of this at once. Each phase produces some
 8. Add `notifications_log` writes (even if no notification channel exists yet — log what *would* have been sent)
 
 **Done when:** user can set "alert me when AAPL crosses $200" and see a record in the log when it triggers (no email yet — that's Phase 3).
+
+### 2b — 13F Holdings tracker
+
+Track publicly disclosed holdings from politicians, hedge funds, and large institutions. 13F filings are legally required quarterly disclosures — free, public, no subscription needed.
+
+**Data source:** [SEC EDGAR full-text search API](https://efts.sec.gov/LATEST/search-index?q=%2213F%22&dateRange=custom) for filings; [Quiver Quant API](https://api.quiverquant.com) (free tier) for pre-parsed congressional trading data. Start with Quiver Quant — it's simpler; fall back to raw EDGAR if needed.
+
+**Database additions:**
+
+```sql
+CREATE TABLE tracked_filers (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,          -- "Nancy Pelosi", "Berkshire Hathaway"
+  filer_type TEXT NOT NULL,          -- 'congress' | 'institution'
+  source_id  TEXT NOT NULL UNIQUE,   -- Quiver slug or SEC CIK number
+  added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE filer_holdings (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  filer_id    INTEGER NOT NULL REFERENCES tracked_filers(id) ON DELETE CASCADE,
+  symbol      TEXT NOT NULL,
+  shares      REAL,
+  value_usd   REAL,
+  report_date DATE NOT NULL,
+  filed_at    TIMESTAMP,
+  fetched_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(filer_id, symbol, report_date)
+);
+```
+
+**Backend endpoints:**
+
+```
+GET    /api/filers                         → list tracked filers
+POST   /api/filers                         → { name, filer_type, source_id }
+DELETE /api/filers/{id}                    → 204
+
+GET    /api/filers/{id}/holdings           → latest holdings for this filer
+GET    /api/filers/{id}/holdings/history   → all filing periods on record
+
+POST   /api/filers/{id}/refresh            → re-fetch from Quiver/EDGAR, update DB
+```
+
+Background task: refresh all filer holdings once daily (filings are quarterly, but Quiver updates daily for congress).
+
+**Frontend additions:**
+
+- New "Tracked Filers" section below the watchlist (or as a second tab)
+- "Add filer" input: type a name, pick from search results (Quiver has a search endpoint)
+- Holdings table per filer: symbol, shares, value, report date, "Add to watchlist" button
+- Badge on watchlist rows when a tracked filer holds that stock (e.g. small "13F" tag next to the signal badges)
+
+**Done when:** user can add "Nancy Pelosi" as a tracked filer, see her latest disclosed trades, and click "Add to watchlist" on any holding to start tracking its signals.
 
 ## Phase 3: Notifications
 

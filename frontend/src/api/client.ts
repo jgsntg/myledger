@@ -50,4 +50,12 @@ export const api = {
 
   getSignalHistory: (symbol: string, days = 30) =>
     request<Record<string, unknown>[]>(`/api/signals/history?symbol=${symbol}&days=${days}`),
+
+  getAlerts: () => request<Record<string, unknown>[]>('/api/alerts'),
+  createAlert: (body: { symbol: string; condition: string; threshold: number }) =>
+    request<Record<string, unknown>>('/api/alerts', { method: 'POST', body: JSON.stringify(body) }),
+  updateAlert: (id: number, body: { active?: boolean; threshold?: number }) =>
+    request<Record<string, unknown>>(`/api/alerts/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  deleteAlert: (id: number) =>
+    request<void>(`/api/alerts/${id}`, { method: 'DELETE' }),
 }
