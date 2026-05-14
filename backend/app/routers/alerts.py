@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from typing import Optional
 
 import aiosqlite
 
@@ -18,8 +19,8 @@ class AlertCreate(BaseModel):
 
 
 class AlertPatch(BaseModel):
-    active: bool | None = None
-    threshold: float | None = None
+    active: Optional[bool] = None
+    threshold: Optional[float] = None
 
 
 @router.get("/alerts")

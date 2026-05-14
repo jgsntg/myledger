@@ -1,6 +1,8 @@
 """Technical indicator math ported from prototype/ledger.html.
 All functions operate on a plain list of closing prices (floats), oldest first."""
 
+from __future__ import annotations
+
 from typing import TypedDict
 
 

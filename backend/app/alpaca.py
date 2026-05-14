@@ -1,6 +1,8 @@
 """Two httpx clients: one for the trading API, one for market data.
 Both APIs share the same key pair but use different base URLs."""
 
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 from typing import Any
 

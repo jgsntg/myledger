@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
+from typing import Optional
 
 import httpx
 
@@ -15,7 +16,7 @@ class OrderRequest(BaseModel):
     side: str
     type: str
     time_in_force: str = "day"
-    limit_price: str | None = None
+    limit_price: Optional[str] = None
 
 
 @router.get("/orders")

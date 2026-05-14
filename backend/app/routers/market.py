@@ -81,7 +81,7 @@ async def get_bars(
             await db.close()
             return cached[0]
 
-    bars = await _fetch_bars_with_cache(symbol, days, db)
+    bars = await _fetch_bars_with_cache(symbol, days, db, timeframe)
 
     clock = await trading_get("/v2/clock")
     ttl = _BAR_TTL_OPEN if clock.get("is_open") else _BAR_TTL_CLOSED
@@ -94,7 +94,7 @@ async def get_bars(
 
 
 async def _fetch_bars_with_cache(
-    symbol: str, days: int, db: aiosqlite.Connection
+    symbol: str, days: int, db: aiosqlite.Connection, timeframe: str = "1Day"
 ) -> list[dict]:
     end_dt = datetime.now(timezone.utc) - timedelta(minutes=16)
     start_dt = end_dt - timedelta(days=days)
