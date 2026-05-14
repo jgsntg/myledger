@@ -60,6 +60,42 @@ CREATE TABLE IF NOT EXISTS notifications_log (
   sent_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   status    TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS tracked_filers (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  name       TEXT NOT NULL,
+  filer_type TEXT NOT NULL,
+  source_id  TEXT NOT NULL UNIQUE,
+  added_at   TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS filer_transactions (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  filer_id         INTEGER NOT NULL REFERENCES tracked_filers(id) ON DELETE CASCADE,
+  symbol           TEXT NOT NULL,
+  transaction_type TEXT NOT NULL,
+  amount_low       REAL,
+  amount_high      REAL,
+  trade_date       DATE NOT NULL,
+  filed_at         TIMESTAMP,
+  fetched_at       TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(filer_id, symbol, trade_date, transaction_type)
+);
+CREATE INDEX IF NOT EXISTS idx_filer_transactions_filer
+  ON filer_transactions(filer_id, trade_date DESC);
+
+CREATE TABLE IF NOT EXISTS filer_holdings (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  filer_id    INTEGER NOT NULL REFERENCES tracked_filers(id) ON DELETE CASCADE,
+  symbol      TEXT NOT NULL,
+  shares      REAL,
+  value_usd   REAL,
+  report_date DATE NOT NULL,
+  fetched_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(filer_id, symbol, report_date)
+);
+CREATE INDEX IF NOT EXISTS idx_filer_holdings_filer
+  ON filer_holdings(filer_id, report_date DESC);
 """
 
 
