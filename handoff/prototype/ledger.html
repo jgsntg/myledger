@@ -1,0 +1,1898 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Ledger — Portfolio Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400;9..144,500;9..144,700&family=JetBrains+Mono:wght@400;500;600&family=Inter+Tight:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0e0e10;
+    --bg-elev: #16161a;
+    --bg-card: #1a1a1f;
+    --line: #26262d;
+    --line-soft: #1f1f25;
+    --ink: #e8e6e1;
+    --ink-soft: #a09c93;
+    --ink-mute: #6b6860;
+    --accent: #d4a574;
+    --green: #6fcf97;
+    --red: #eb5757;
+    --amber: #f2c94c;
+    --blue: #56a3f0;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Inter Tight', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
+  body { min-height: 100vh; }
+
+  /* Header */
+  header {
+    border-bottom: 1px solid var(--line);
+    padding: 18px 32px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+  .brand h1 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 28px;
+    letter-spacing: -0.5px;
+    font-style: italic;
+  }
+  .brand h1::first-letter { color: var(--accent); }
+  .brand .tag {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-mute);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    border-left: 1px solid var(--line);
+    padding-left: 14px;
+  }
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--ink-mute);
+    margin-right: 6px;
+    transition: background .3s;
+  }
+  .status-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .status-dot.mock { background: var(--amber); }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+  .settings-btn {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--ink-soft);
+    padding: 6px 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all .2s;
+  }
+  .settings-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* Layout */
+  .container { max-width: 1600px; margin: 0 auto; padding: 32px; }
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    gap: 28px;
+  }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+
+  /* Section headers */
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 16px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .section-head h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 22px;
+    letter-spacing: -0.3px;
+  }
+  .section-head .meta {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-mute);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+
+  /* Portfolio summary */
+  .portfolio-summary {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    margin-bottom: 32px;
+  }
+  .summary-cell {
+    background: var(--bg-elev);
+    padding: 20px 24px;
+  }
+  .summary-cell .label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-mute);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+  }
+  .summary-cell .value {
+    font-family: var(--font-display);
+    font-size: 28px;
+    font-weight: 400;
+    letter-spacing: -0.5px;
+  }
+  .summary-cell .delta {
+    font-family: var(--font-mono);
+    font-size: 12px;
+    margin-top: 4px;
+  }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .flat { color: var(--ink-soft); }
+
+  /* Watchlist */
+  .watchlist-controls {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+  .watchlist-controls input {
+    flex: 1;
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    padding: 10px 14px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    outline: none;
+    transition: border-color .2s;
+  }
+  .watchlist-controls input:focus { border-color: var(--accent); }
+  .watchlist-controls button {
+    background: var(--accent);
+    color: var(--bg);
+    border: none;
+    padding: 10px 20px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    font-weight: 600;
+    transition: opacity .2s;
+  }
+  .watchlist-controls button:hover { opacity: 0.85; }
+
+  .stock-list { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); }
+  .stock-row {
+    background: var(--bg-elev);
+    padding: 18px 22px;
+    display: grid;
+    grid-template-columns: 1.2fr 1fr 1fr 1.6fr 70px 40px;
+    gap: 16px;
+    align-items: center;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .trade-btn {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    padding: 6px 10px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all .15s;
+  }
+  .trade-btn:hover { background: var(--accent); color: var(--bg); }
+  .trade-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    border-color: var(--line);
+    color: var(--ink-mute);
+  }
+  .trade-btn:disabled:hover { background: transparent; color: var(--ink-mute); }
+  .stock-row:hover { background: var(--bg-card); }
+  .stock-row.expanded { background: var(--bg-card); }
+  .stock-symbol {
+    font-family: var(--font-display);
+    font-size: 20px;
+    font-weight: 500;
+    letter-spacing: -0.3px;
+  }
+  .stock-name {
+    font-size: 11px;
+    color: var(--ink-mute);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-top: 2px;
+  }
+  .stock-price {
+    font-family: var(--font-mono);
+    font-size: 18px;
+    font-weight: 500;
+  }
+  .stock-change {
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .signals {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+  .signal {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: 2px;
+  }
+  .signal.buy { background: rgba(111, 207, 151, 0.12); color: var(--green); border-color: rgba(111, 207, 151, 0.3); }
+  .signal.sell { background: rgba(235, 87, 87, 0.12); color: var(--red); border-color: rgba(235, 87, 87, 0.3); }
+  .signal.hold { background: rgba(160, 156, 147, 0.08); color: var(--ink-soft); }
+  .signal.warn { background: rgba(242, 201, 76, 0.12); color: var(--amber); border-color: rgba(242, 201, 76, 0.3); }
+  .remove-btn {
+    background: transparent;
+    border: none;
+    color: var(--ink-mute);
+    font-size: 18px;
+    cursor: pointer;
+    padding: 4px;
+    transition: color .2s;
+  }
+  .remove-btn:hover { color: var(--red); }
+
+  /* Expanded detail */
+  .detail {
+    background: var(--bg-card);
+    padding: 0 22px;
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height .3s ease, padding .3s ease;
+    border-top: 1px solid transparent;
+  }
+  .detail.open {
+    max-height: 600px;
+    padding: 24px 22px;
+    border-top: 1px solid var(--line);
+  }
+  .detail-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  .chart-container {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 16px;
+    min-height: 200px;
+  }
+  .indicators {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .indicator {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 14px 16px;
+  }
+  .indicator .label {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-mute);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .indicator .val {
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: 500;
+  }
+  .indicator .note {
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 4px;
+    font-style: italic;
+    font-family: var(--font-display);
+  }
+
+  /* Alerts panel */
+  .alerts-panel {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    padding: 0;
+    position: sticky;
+    top: 100px;
+    align-self: start;
+  }
+  .alerts-head {
+    padding: 18px 22px;
+    border-bottom: 1px solid var(--line);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  .alerts-head h3 {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 18px;
+  }
+  .alerts-head .count {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--accent);
+  }
+  .alerts-list {
+    max-height: 480px;
+    overflow-y: auto;
+  }
+  .alert-item {
+    padding: 14px 22px;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 13px;
+  }
+  .alert-item:last-child { border-bottom: none; }
+  .alert-time {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--ink-mute);
+    letter-spacing: 1px;
+    margin-bottom: 4px;
+  }
+  .alert-msg { color: var(--ink); line-height: 1.4; }
+  .alert-symbol {
+    font-family: var(--font-display);
+    font-weight: 500;
+    color: var(--accent);
+  }
+  .alerts-empty {
+    padding: 32px 22px;
+    text-align: center;
+    color: var(--ink-mute);
+    font-style: italic;
+    font-family: var(--font-display);
+  }
+
+  /* Modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.75);
+    backdrop-filter: blur(4px);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    width: 90%;
+    max-width: 520px;
+    padding: 32px;
+  }
+  .modal h2 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    font-size: 24px;
+    margin-bottom: 8px;
+  }
+  .modal p {
+    color: var(--ink-soft);
+    font-size: 13px;
+    margin-bottom: 20px;
+    line-height: 1.6;
+  }
+  .modal label {
+    display: block;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    margin-bottom: 6px;
+    margin-top: 14px;
+  }
+  .modal input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    outline: none;
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 24px;
+    justify-content: flex-end;
+  }
+  .modal-actions button {
+    padding: 10px 20px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: transparent;
+    color: var(--ink-soft);
+  }
+  .modal-actions button.primary {
+    background: var(--accent);
+    color: var(--bg);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+
+  .disclaimer {
+    margin-top: 40px;
+    padding: 16px 22px;
+    border: 1px dashed var(--line);
+    color: var(--ink-mute);
+    font-size: 12px;
+    font-style: italic;
+    font-family: var(--font-display);
+    line-height: 1.6;
+  }
+
+  /* Positions table */
+  .positions-section { margin-top: 40px; }
+  .data-table {
+    background: var(--bg-elev);
+    border: 1px solid var(--line);
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .data-table th {
+    text-align: left;
+    padding: 14px 18px;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--ink-mute);
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+  .data-table td {
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--line-soft);
+    font-family: var(--font-mono);
+    font-size: 13px;
+  }
+  .data-table tr:last-child td { border-bottom: none; }
+  .data-table .symbol-cell {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 500;
+  }
+  .data-table-empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--ink-mute);
+    font-style: italic;
+    font-family: var(--font-display);
+  }
+
+  /* Trade modal */
+  .trade-modal {
+    max-width: 480px;
+  }
+  .trade-summary {
+    background: var(--bg);
+    border: 1px solid var(--line);
+    padding: 16px 18px;
+    margin: 16px 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .trade-summary .sum-item .label {
+    font-family: var(--font-mono);
+    font-size: 9px;
+    color: var(--ink-mute);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .trade-summary .sum-item .val {
+    font-family: var(--font-mono);
+    font-size: 15px;
+  }
+  .side-toggle {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    border: 1px solid var(--line);
+    margin-bottom: 16px;
+  }
+  .side-toggle button {
+    background: transparent;
+    border: none;
+    color: var(--ink-soft);
+    padding: 12px;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all .15s;
+  }
+  .side-toggle button.active.buy { background: var(--green); color: var(--bg); }
+  .side-toggle button.active.sell { background: var(--red); color: var(--bg); }
+  .order-type-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+  }
+  .modal select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    padding: 10px 12px;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    outline: none;
+    cursor: pointer;
+  }
+  .modal select:focus { border-color: var(--accent); }
+  .trade-confirm-warn {
+    background: rgba(242, 201, 76, 0.08);
+    border-left: 2px solid var(--amber);
+    padding: 10px 14px;
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin-top: 14px;
+    font-family: var(--font-display);
+    font-style: italic;
+  }
+  .trade-feedback {
+    padding: 12px 14px;
+    margin-top: 14px;
+    font-family: var(--font-mono);
+    font-size: 12px;
+    border-left: 2px solid;
+  }
+  .trade-feedback.success { background: rgba(111, 207, 151, 0.08); border-color: var(--green); color: var(--green); }
+  .trade-feedback.error { background: rgba(235, 87, 87, 0.08); border-color: var(--red); color: var(--red); }
+
+  /* Loading skeleton */
+  .skeleton {
+    background: linear-gradient(90deg, var(--bg-elev) 0%, var(--bg-card) 50%, var(--bg-elev) 100%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+  }
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; }
+  ::-webkit-scrollbar-track { background: var(--bg); }
+  ::-webkit-scrollbar-thumb { background: var(--line); }
+  ::-webkit-scrollbar-thumb:hover { background: var(--ink-mute); }
+
+  .empty-state {
+    padding: 60px 22px;
+    text-align: center;
+    background: var(--bg-elev);
+    border: 1px dashed var(--line);
+  }
+  .empty-state h3 {
+    font-family: var(--font-display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 20px;
+    margin-bottom: 8px;
+  }
+  .empty-state p {
+    color: var(--ink-mute);
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <h1>Ledger</h1>
+    <span class="tag">Portfolio Intelligence</span>
+  </div>
+  <div class="status">
+    <div id="conn-status"><span class="status-dot mock"></span>DEMO MODE</div>
+    <div id="market-status">Market: —</div>
+    <div id="clock">—</div>
+    <button class="settings-btn" id="settings-btn">⚙ Connect Alpaca</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Portfolio summary -->
+  <section>
+    <div class="section-head">
+      <h2>The Portfolio</h2>
+      <div class="meta">Paper Account · Updated Live</div>
+    </div>
+    <div class="portfolio-summary">
+      <div class="summary-cell">
+        <div class="label">Total Equity</div>
+        <div class="value" id="equity">$100,000.00</div>
+        <div class="delta flat" id="equity-delta">— —</div>
+      </div>
+      <div class="summary-cell">
+        <div class="label">Buying Power</div>
+        <div class="value" id="buying-power">$100,000.00</div>
+        <div class="delta flat">Cash available</div>
+      </div>
+      <div class="summary-cell">
+        <div class="label">Day's P&L</div>
+        <div class="value" id="day-pl">$0.00</div>
+        <div class="delta flat" id="day-pl-pct">+0.00%</div>
+      </div>
+      <div class="summary-cell">
+        <div class="label">Open Positions</div>
+        <div class="value" id="positions-count">0</div>
+        <div class="delta flat">Active holdings</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="grid">
+    <!-- Watchlist -->
+    <section>
+      <div class="section-head">
+        <h2>Watchlist & Signals</h2>
+        <div class="meta">Click a row for indicators</div>
+      </div>
+
+      <div class="watchlist-controls">
+        <input type="text" id="symbol-input" placeholder="Add symbol (e.g. AAPL)" maxlength="6" />
+        <button id="add-btn">Add</button>
+      </div>
+
+      <div class="stock-list" id="stock-list"></div>
+    </section>
+
+    <!-- Alerts -->
+    <aside>
+      <div class="section-head">
+        <h2>Signals Log</h2>
+        <div class="meta">Real-time</div>
+      </div>
+      <div class="alerts-panel">
+        <div class="alerts-head">
+          <h3>Recent activity</h3>
+          <div class="count" id="alert-count">0 events</div>
+        </div>
+        <div class="alerts-list" id="alerts-list">
+          <div class="alerts-empty">No signals yet — add stocks to begin</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Positions -->
+  <section class="positions-section">
+    <div class="section-head">
+      <h2>Open Positions</h2>
+      <div class="meta">
+        <span id="positions-meta">Connect Alpaca to view</span>
+        <button class="settings-btn" id="refresh-positions-btn" style="margin-left:14px">↻ Refresh</button>
+      </div>
+    </div>
+    <div id="positions-table"></div>
+  </section>
+
+  <!-- Recent orders -->
+  <section class="positions-section">
+    <div class="section-head">
+      <h2>Recent Orders</h2>
+      <div class="meta">Last 20 · all statuses</div>
+    </div>
+    <div id="orders-table"></div>
+  </section>
+
+  <div class="disclaimer">
+    A note on the signals: RSI, MACD, moving-average crossovers, and Bollinger Bands are descriptive indicators of recent price behavior, not predictions. They tell you what the math says about the past — not what the market will do next. This dashboard is a thinking aid, not financial advice. Trade your own judgment.
+  </div>
+</div>
+
+<!-- Settings modal -->
+<div class="modal-overlay" id="settings-modal">
+  <div class="modal">
+    <h2>Connect Alpaca</h2>
+    <p>Paste your Alpaca paper trading keys to switch from demo data to live market data and your real paper portfolio. Keys are stored only in this browser session — never sent anywhere except Alpaca's API.</p>
+    <label>API Key ID</label>
+    <input type="text" id="api-key" placeholder="PKxxxxxxxxxxxxxxxxxx" />
+    <label>Secret Key</label>
+    <input type="password" id="api-secret" placeholder="••••••••••••••••••••••••••••••" />
+    <label>Endpoint</label>
+    <input type="text" id="api-endpoint" value="https://paper-api.alpaca.markets" readonly />
+    <div class="modal-actions">
+      <button id="settings-cancel">Cancel</button>
+      <button id="settings-disconnect">Disconnect</button>
+      <button class="primary" id="settings-save">Connect</button>
+    </div>
+  </div>
+</div>
+
+<!-- Trade modal -->
+<div class="modal-overlay" id="trade-modal">
+  <div class="modal trade-modal">
+    <h2 id="trade-title">Place Order</h2>
+    <p id="trade-subtitle">Paper trading — no real money at risk.</p>
+
+    <div class="side-toggle">
+      <button class="active buy" id="side-buy" data-side="buy">Buy</button>
+      <button id="side-sell" data-side="sell">Sell</button>
+    </div>
+
+    <div class="order-type-row">
+      <div>
+        <label>Quantity</label>
+        <input type="number" id="trade-qty" min="0" step="0.0001" value="1" />
+      </div>
+      <div>
+        <label>Order Type</label>
+        <select id="trade-type">
+          <option value="market">Market</option>
+          <option value="limit">Limit</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="limit-price-row" style="display:none">
+      <label>Limit Price</label>
+      <input type="number" id="trade-limit" min="0" step="0.01" />
+    </div>
+
+    <div class="trade-summary">
+      <div class="sum-item">
+        <div class="label">Symbol</div>
+        <div class="val" id="trade-symbol">—</div>
+      </div>
+      <div class="sum-item">
+        <div class="label">Last Price</div>
+        <div class="val" id="trade-last-price">—</div>
+      </div>
+      <div class="sum-item">
+        <div class="label">Est. Cost</div>
+        <div class="val" id="trade-est-cost">—</div>
+      </div>
+      <div class="sum-item">
+        <div class="label">Buying Power</div>
+        <div class="val" id="trade-bp">—</div>
+      </div>
+    </div>
+
+    <div class="trade-confirm-warn" id="trade-warn">
+      Review carefully before submitting — orders cannot be modified once filled.
+    </div>
+
+    <div id="trade-feedback"></div>
+
+    <div class="modal-actions">
+      <button id="trade-cancel">Cancel</button>
+      <button class="primary" id="trade-submit">Submit Order</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ===========================================================
+   LEDGER — Stock tracking dashboard
+   Connects to Alpaca paper trading API when keys provided,
+   falls back to deterministic mock data for demo mode.
+   =========================================================== */
+
+const state = {
+  symbols: ['AAPL', 'MSFT', 'NVDA', 'TSLA', 'SPY'],
+  data: {},            // symbol -> {price, change, history, indicators, signals, name}
+  alerts: [],
+  expanded: null,
+  apiKey: null,
+  apiSecret: null,
+  apiEndpoint: 'https://paper-api.alpaca.markets',
+  dataEndpoint: 'https://data.alpaca.markets',
+  account: null,
+  positions: [],
+  orders: [],
+  mode: 'demo'         // 'demo' or 'live'
+};
+
+const COMPANY_NAMES = {
+  AAPL: 'Apple Inc.', MSFT: 'Microsoft Corp.', NVDA: 'NVIDIA Corp.',
+  TSLA: 'Tesla Inc.', SPY: 'S&P 500 ETF', GOOGL: 'Alphabet Inc.',
+  AMZN: 'Amazon.com Inc.', META: 'Meta Platforms', AMD: 'Adv. Micro Devices',
+  NFLX: 'Netflix Inc.', JPM: 'JPMorgan Chase', V: 'Visa Inc.',
+  WMT: 'Walmart Inc.', DIS: 'Walt Disney Co.', BA: 'Boeing Co.',
+  QQQ: 'Nasdaq 100 ETF', VOO: 'Vanguard S&P 500', BRK: 'Berkshire Hathaway'
+};
+
+/* ============= TECHNICAL INDICATORS ============= */
+
+function sma(values, period) {
+  if (values.length < period) return null;
+  const slice = values.slice(-period);
+  return slice.reduce((a,b) => a+b, 0) / period;
+}
+
+function ema(values, period) {
+  if (values.length < period) return null;
+  const k = 2 / (period + 1);
+  let emaVal = values.slice(0, period).reduce((a,b) => a+b, 0) / period;
+  for (let i = period; i < values.length; i++) {
+    emaVal = values[i] * k + emaVal * (1 - k);
+  }
+  return emaVal;
+}
+
+function rsi(values, period = 14) {
+  if (values.length < period + 1) return null;
+  let gains = 0, losses = 0;
+  for (let i = values.length - period; i < values.length; i++) {
+    const diff = values[i] - values[i - 1];
+    if (diff > 0) gains += diff; else losses -= diff;
+  }
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  if (avgLoss === 0) return 100;
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+function macd(values) {
+  const ema12 = ema(values, 12);
+  const ema26 = ema(values, 26);
+  if (ema12 === null || ema26 === null) return null;
+  const macdLine = ema12 - ema26;
+  // Signal line is 9-period EMA of MACD - simplified here
+  const recent = values.slice(-35);
+  const macdHistory = [];
+  for (let i = 26; i <= recent.length; i++) {
+    const sub = recent.slice(0, i);
+    const e12 = ema(sub, 12);
+    const e26 = ema(sub, 26);
+    if (e12 !== null && e26 !== null) macdHistory.push(e12 - e26);
+  }
+  const signal = macdHistory.length >= 9 ? ema(macdHistory, 9) : macdLine;
+  return { macd: macdLine, signal, histogram: macdLine - signal };
+}
+
+function bollinger(values, period = 20, k = 2) {
+  if (values.length < period) return null;
+  const slice = values.slice(-period);
+  const mean = slice.reduce((a,b) => a+b, 0) / period;
+  const variance = slice.reduce((a,b) => a + (b - mean)**2, 0) / period;
+  const std = Math.sqrt(variance);
+  return { upper: mean + k*std, middle: mean, lower: mean - k*std };
+}
+
+function computeSignals(history) {
+  if (!history || history.length < 30) return { indicators: {}, signals: [] };
+  const ind = {
+    rsi: rsi(history),
+    sma50: sma(history, Math.min(50, history.length)),
+    sma200: sma(history, Math.min(200, history.length)),
+    macd: macd(history),
+    bb: bollinger(history)
+  };
+  const price = history[history.length - 1];
+  const signals = [];
+
+  // RSI signals
+  if (ind.rsi !== null) {
+    if (ind.rsi < 30) signals.push({ type: 'buy', label: 'RSI Oversold' });
+    else if (ind.rsi > 70) signals.push({ type: 'sell', label: 'RSI Overbought' });
+  }
+
+  // MA crossover
+  if (ind.sma50 && ind.sma200) {
+    if (ind.sma50 > ind.sma200 && (ind.sma50 / ind.sma200 - 1) < 0.02)
+      signals.push({ type: 'buy', label: 'Golden Cross' });
+    else if (ind.sma50 < ind.sma200 && (ind.sma200 / ind.sma50 - 1) < 0.02)
+      signals.push({ type: 'sell', label: 'Death Cross' });
+  }
+
+  // MACD
+  if (ind.macd) {
+    if (ind.macd.histogram > 0 && Math.abs(ind.macd.histogram) > Math.abs(ind.macd.macd) * 0.05)
+      signals.push({ type: 'buy', label: 'MACD Bull' });
+    else if (ind.macd.histogram < 0 && Math.abs(ind.macd.histogram) > Math.abs(ind.macd.macd) * 0.05)
+      signals.push({ type: 'sell', label: 'MACD Bear' });
+  }
+
+  // Bollinger
+  if (ind.bb) {
+    if (price < ind.bb.lower) signals.push({ type: 'buy', label: 'Below Lower BB' });
+    else if (price > ind.bb.upper) signals.push({ type: 'sell', label: 'Above Upper BB' });
+  }
+
+  if (signals.length === 0) signals.push({ type: 'hold', label: 'No Signal' });
+
+  return { indicators: ind, signals };
+}
+
+/* ============= MOCK DATA (for demo mode) ============= */
+
+function seededRandom(seed) {
+  let s = seed;
+  return () => {
+    s = (s * 9301 + 49297) % 233280;
+    return s / 233280;
+  };
+}
+
+function generateMockHistory(symbol, basePrice = 100) {
+  // Stable seed per symbol so prices feel consistent
+  let seed = 0;
+  for (let c of symbol) seed += c.charCodeAt(0);
+  const rand = seededRandom(seed * 1000 + Math.floor(Date.now() / 60000));
+
+  const history = [];
+  let price = basePrice + rand() * 200;
+  const trend = (rand() - 0.5) * 0.002;
+  for (let i = 0; i < 220; i++) {
+    const noise = (rand() - 0.5) * price * 0.025;
+    price = Math.max(1, price + noise + price * trend);
+    history.push(price);
+  }
+  return history;
+}
+
+const BASE_PRICES = {
+  AAPL: 180, MSFT: 410, NVDA: 850, TSLA: 240, SPY: 510,
+  GOOGL: 165, AMZN: 185, META: 490, AMD: 165, NFLX: 590
+};
+
+function mockFetchSymbol(symbol) {
+  const base = BASE_PRICES[symbol] || (50 + (symbol.charCodeAt(0) % 30) * 10);
+  const history = generateMockHistory(symbol, base);
+  const price = history[history.length - 1];
+  const prevClose = history[history.length - 2];
+  const change = price - prevClose;
+  const changePct = (change / prevClose) * 100;
+  return {
+    symbol,
+    name: COMPANY_NAMES[symbol] || symbol,
+    price,
+    change,
+    changePct,
+    history,
+    prevClose
+  };
+}
+
+/* ============= ALPACA API ============= */
+
+async function alpacaRequest(path, opts = {}) {
+  const headers = {
+    'APCA-API-KEY-ID': state.apiKey,
+    'APCA-API-SECRET-KEY': state.apiSecret,
+    'Content-Type': 'application/json'
+  };
+  const useDataEndpoint = path.includes('/v2/stocks/');
+  const base = useDataEndpoint ? state.dataEndpoint : state.apiEndpoint;
+  const res = await fetch(base + path, { ...opts, headers });
+  if (!res.ok) throw new Error(`Alpaca ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+async function fetchAccount() {
+  return alpacaRequest('/v2/account');
+}
+
+async function fetchPositions() {
+  return alpacaRequest('/v2/positions');
+}
+
+async function fetchBars(symbol) {
+  // Get daily bars for last 250 days
+  const end = new Date(Date.now() - 16 * 60 * 1000).toISOString(); // 16 min delay for free tier
+  const start = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString();
+  const url = `/v2/stocks/${symbol}/bars?timeframe=1Day&start=${start}&end=${end}&limit=250&adjustment=raw&feed=iex`;
+  const data = await alpacaRequest(url);
+  return data.bars || [];
+}
+
+async function fetchSnapshots(symbols) {
+  // Batch endpoint - one call for many symbols, returns latest trade/quote/daily bar
+  if (!symbols.length) return {};
+  const url = `/v2/stocks/snapshots?symbols=${symbols.join(',')}&feed=iex`;
+  return alpacaRequest(url);
+}
+
+async function fetchOrders(limit = 20) {
+  return alpacaRequest(`/v2/orders?status=all&limit=${limit}&direction=desc`);
+}
+
+async function submitOrder(payload) {
+  return alpacaRequest('/v2/orders', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  });
+}
+
+async function fetchSymbol(symbol) {
+  if (state.mode === 'demo') return mockFetchSymbol(symbol);
+
+  try {
+    const bars = await fetchBars(symbol);
+    if (!bars.length) {
+      addAlert(`No data returned for ${symbol} — falling back to demo`, 'warn');
+      return mockFetchSymbol(symbol);
+    }
+    const history = bars.map(b => b.c);
+    const price = history[history.length - 1];
+    const prevClose = history[history.length - 2] || price;
+    const change = price - prevClose;
+    const changePct = (change / prevClose) * 100;
+    return {
+      symbol,
+      name: COMPANY_NAMES[symbol] || symbol,
+      price,
+      change,
+      changePct,
+      history,
+      prevClose
+    };
+  } catch (e) {
+    console.error('Alpaca fetch failed:', e);
+    addAlert(`Failed to fetch ${symbol}: ${e.message}`, 'warn');
+    return mockFetchSymbol(symbol);
+  }
+}
+
+/* ============= ALERTS ============= */
+
+function addAlert(message, type = 'info', symbol = null) {
+  const alert = {
+    id: Date.now() + Math.random(),
+    time: new Date(),
+    message,
+    type,
+    symbol
+  };
+  state.alerts.unshift(alert);
+  if (state.alerts.length > 50) state.alerts.pop();
+  renderAlerts();
+}
+
+function checkSignalChanges(symbol, oldSignals, newSignals) {
+  const oldLabels = new Set((oldSignals || []).map(s => s.label));
+  for (const sig of newSignals) {
+    if (!oldLabels.has(sig.label) && sig.type !== 'hold') {
+      const verb = sig.type === 'buy' ? 'Bullish' : 'Bearish';
+      addAlert(`${verb} signal on ${symbol}: ${sig.label}`, sig.type, symbol);
+    }
+  }
+}
+
+/* ============= RENDERING ============= */
+
+function fmtMoney(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtPct(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  const sign = n > 0 ? '+' : '';
+  return sign + n.toFixed(2) + '%';
+}
+
+function deltaClass(n) {
+  if (!n || Math.abs(n) < 0.005) return 'flat';
+  return n > 0 ? 'pos' : 'neg';
+}
+
+function renderPortfolio() {
+  const eqEl = document.getElementById('equity');
+  const bpEl = document.getElementById('buying-power');
+  const plEl = document.getElementById('day-pl');
+  const plPctEl = document.getElementById('day-pl-pct');
+  const eqDelEl = document.getElementById('equity-delta');
+  const posEl = document.getElementById('positions-count');
+
+  if (state.mode === 'live' && state.account) {
+    const eq = parseFloat(state.account.equity);
+    const lastEq = parseFloat(state.account.last_equity);
+    const bp = parseFloat(state.account.buying_power);
+    const pl = eq - lastEq;
+    const plPct = lastEq ? (pl / lastEq) * 100 : 0;
+    eqEl.textContent = fmtMoney(eq);
+    bpEl.textContent = fmtMoney(bp);
+    plEl.textContent = (pl >= 0 ? '+' : '') + fmtMoney(pl).replace('$+','+$').replace('+$-','-$');
+    plEl.className = 'value ' + deltaClass(pl);
+    plPctEl.textContent = fmtPct(plPct);
+    plPctEl.className = 'delta ' + deltaClass(pl);
+    eqDelEl.textContent = fmtPct(plPct);
+    eqDelEl.className = 'delta ' + deltaClass(pl);
+    posEl.textContent = state.positions.length;
+  } else {
+    // Demo
+    eqEl.textContent = '$100,000.00';
+    bpEl.textContent = '$100,000.00';
+    plEl.textContent = '$0.00';
+    plEl.className = 'value flat';
+    plPctEl.textContent = '+0.00%';
+    eqDelEl.textContent = 'Connect Alpaca for real P&L';
+    posEl.textContent = '0';
+  }
+}
+
+function renderStockList() {
+  const list = document.getElementById('stock-list');
+  if (state.symbols.length === 0) {
+    list.innerHTML = `<div class="empty-state">
+      <h3>Your watchlist is empty</h3>
+      <p>Add a ticker above to begin tracking signals.</p>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+  for (const symbol of state.symbols) {
+    const d = state.data[symbol];
+    const row = document.createElement('div');
+    row.className = 'stock-row' + (state.expanded === symbol ? ' expanded' : '');
+
+    if (!d) {
+      row.innerHTML = `
+        <div><div class="stock-symbol">${symbol}</div><div class="stock-name skeleton" style="height:10px;width:100px;margin-top:6px"></div></div>
+        <div class="skeleton" style="height:18px;width:80px"></div>
+        <div class="skeleton" style="height:13px;width:60px"></div>
+        <div></div>
+        <button class="trade-btn" disabled>Trade</button>
+        <button class="remove-btn" data-symbol="${symbol}">×</button>`;
+    } else {
+      const signalsHtml = d.signals.map(s =>
+        `<span class="signal ${s.type}">${s.label}</span>`
+      ).join('');
+      const tradeDisabled = state.mode !== 'live' ? 'disabled' : '';
+      row.innerHTML = `
+        <div>
+          <div class="stock-symbol">${symbol}</div>
+          <div class="stock-name">${d.name}</div>
+        </div>
+        <div class="stock-price">${fmtMoney(d.price)}</div>
+        <div class="stock-change ${deltaClass(d.change)}">${fmtPct(d.changePct)} <span style="color:var(--ink-mute)">${d.change >= 0 ? '+' : ''}${d.change.toFixed(2)}</span></div>
+        <div class="signals">${signalsHtml}</div>
+        <button class="trade-btn" data-symbol="${symbol}" ${tradeDisabled} title="${state.mode === 'live' ? 'Place order' : 'Connect Alpaca to trade'}">Trade</button>
+        <button class="remove-btn" data-symbol="${symbol}" title="Remove">×</button>`;
+    }
+    list.appendChild(row);
+
+    // Detail panel
+    const detail = document.createElement('div');
+    detail.className = 'detail' + (state.expanded === symbol ? ' open' : '');
+    if (d && state.expanded === symbol) {
+      const ind = d.indicators;
+      detail.innerHTML = `
+        <div class="detail-grid">
+          <div class="chart-container">
+            ${renderSparkline(d.history.slice(-60), d.change >= 0)}
+          </div>
+          <div class="indicators">
+            <div class="indicator">
+              <div class="label">RSI (14)</div>
+              <div class="val">${ind.rsi ? ind.rsi.toFixed(1) : '—'}</div>
+              <div class="note">${rsiNote(ind.rsi)}</div>
+            </div>
+            <div class="indicator">
+              <div class="label">50-day MA</div>
+              <div class="val">${fmtMoney(ind.sma50)}</div>
+              <div class="note">${d.price > ind.sma50 ? 'Above trend' : 'Below trend'}</div>
+            </div>
+            <div class="indicator">
+              <div class="label">200-day MA</div>
+              <div class="val">${fmtMoney(ind.sma200)}</div>
+              <div class="note">${d.price > ind.sma200 ? 'Long-term up' : 'Long-term down'}</div>
+            </div>
+            <div class="indicator">
+              <div class="label">MACD</div>
+              <div class="val">${ind.macd ? ind.macd.histogram.toFixed(2) : '—'}</div>
+              <div class="note">${macdNote(ind.macd)}</div>
+            </div>
+            <div class="indicator" style="grid-column: span 2">
+              <div class="label">Bollinger Bands (20, 2σ)</div>
+              <div class="val" style="font-size:13px">
+                Lower ${fmtMoney(ind.bb?.lower)} · Mid ${fmtMoney(ind.bb?.middle)} · Upper ${fmtMoney(ind.bb?.upper)}
+              </div>
+              <div class="note">${bbNote(d.price, ind.bb)}</div>
+            </div>
+          </div>
+        </div>`;
+    }
+    list.appendChild(detail);
+  }
+
+  // Event listeners
+  list.querySelectorAll('.stock-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.classList.contains('remove-btn')) return;
+      if (e.target.classList.contains('trade-btn')) return;
+      const sym = row.querySelector('.stock-symbol')?.textContent;
+      if (!sym) return;
+      state.expanded = state.expanded === sym ? null : sym;
+      renderStockList();
+    });
+  });
+  list.querySelectorAll('.remove-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const sym = btn.dataset.symbol;
+      state.symbols = state.symbols.filter(s => s !== sym);
+      delete state.data[sym];
+      if (state.expanded === sym) state.expanded = null;
+      saveSettings();
+      renderStockList();
+    });
+  });
+  list.querySelectorAll('.trade-btn:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openTradeModal(btn.dataset.symbol);
+    });
+  });
+}
+
+function rsiNote(v) {
+  if (v === null || v === undefined) return 'Insufficient data';
+  if (v < 30) return 'Oversold zone';
+  if (v > 70) return 'Overbought zone';
+  if (v < 45) return 'Bearish momentum';
+  if (v > 55) return 'Bullish momentum';
+  return 'Neutral';
+}
+
+function macdNote(m) {
+  if (!m) return 'Insufficient data';
+  if (m.histogram > 0) return 'Momentum positive';
+  if (m.histogram < 0) return 'Momentum negative';
+  return 'Crossing';
+}
+
+function bbNote(price, bb) {
+  if (!bb) return 'Insufficient data';
+  if (price > bb.upper) return 'Stretched above band';
+  if (price < bb.lower) return 'Stretched below band';
+  const pos = (price - bb.lower) / (bb.upper - bb.lower);
+  return `Currently at ${(pos * 100).toFixed(0)}% of band range`;
+}
+
+function renderSparkline(history, isUp) {
+  const w = 320, h = 180, pad = 8;
+  const min = Math.min(...history);
+  const max = Math.max(...history);
+  const range = max - min || 1;
+  const stepX = (w - pad*2) / (history.length - 1);
+  const points = history.map((p, i) => {
+    const x = pad + i * stepX;
+    const y = pad + (h - pad*2) * (1 - (p - min) / range);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  const color = isUp ? '#6fcf97' : '#eb5757';
+  const fill = isUp ? 'rgba(111, 207, 151, 0.08)' : 'rgba(235, 87, 87, 0.08)';
+  const areaPoints = `${pad},${h-pad} ${points} ${w-pad},${h-pad}`;
+  return `
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--ink-mute);letter-spacing:1.5px;text-transform:uppercase;margin-bottom:8px">60-Day Price</div>
+    <svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="none">
+      <polygon points="${areaPoints}" fill="${fill}" />
+      <polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" />
+    </svg>
+    <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:10px;color:var(--ink-mute);margin-top:8px">
+      <span>Low ${fmtMoney(min)}</span>
+      <span>High ${fmtMoney(max)}</span>
+    </div>`;
+}
+
+function renderPositions() {
+  const container = document.getElementById('positions-table');
+  const meta = document.getElementById('positions-meta');
+
+  if (state.mode !== 'live') {
+    container.innerHTML = '<div class="data-table-empty">Connect Alpaca to view your real positions</div>';
+    meta.textContent = 'Demo mode — no live positions';
+    return;
+  }
+
+  if (!state.positions.length) {
+    container.innerHTML = '<div class="data-table-empty">No open positions — place your first paper trade from the watchlist</div>';
+    meta.textContent = '0 positions';
+    return;
+  }
+
+  meta.textContent = `${state.positions.length} position${state.positions.length === 1 ? '' : 's'}`;
+  const rows = state.positions.map(p => {
+    const qty = parseFloat(p.qty);
+    const avgEntry = parseFloat(p.avg_entry_price);
+    const current = parseFloat(p.current_price);
+    const mktVal = parseFloat(p.market_value);
+    const upl = parseFloat(p.unrealized_pl);
+    const uplPct = parseFloat(p.unrealized_plpc) * 100;
+    return `
+      <tr>
+        <td class="symbol-cell">${p.symbol}</td>
+        <td>${qty}</td>
+        <td>${fmtMoney(avgEntry)}</td>
+        <td>${fmtMoney(current)}</td>
+        <td>${fmtMoney(mktVal)}</td>
+        <td class="${deltaClass(upl)}">${upl >= 0 ? '+' : ''}${fmtMoney(upl)}</td>
+        <td class="${deltaClass(upl)}">${fmtPct(uplPct)}</td>
+        <td><button class="trade-btn" data-symbol="${p.symbol}" data-preset-side="sell" data-preset-qty="${qty}">Close</button></td>
+      </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Symbol</th><th>Qty</th><th>Avg Entry</th><th>Current</th>
+          <th>Market Value</th><th>P&L</th><th>P&L %</th><th></th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  container.querySelectorAll('.trade-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      openTradeModal(btn.dataset.symbol, {
+        side: btn.dataset.presetSide,
+        qty: btn.dataset.presetQty
+      });
+    });
+  });
+}
+
+function renderOrders() {
+  const container = document.getElementById('orders-table');
+
+  if (state.mode !== 'live') {
+    container.innerHTML = '<div class="data-table-empty">Connect Alpaca to view order history</div>';
+    return;
+  }
+
+  if (!state.orders.length) {
+    container.innerHTML = '<div class="data-table-empty">No orders yet</div>';
+    return;
+  }
+
+  const statusColor = {
+    filled: 'pos', partially_filled: 'pos',
+    canceled: '', expired: '', rejected: 'neg',
+    new: 'flat', accepted: 'flat', pending_new: 'flat',
+    done_for_day: 'flat'
+  };
+
+  const rows = state.orders.map(o => {
+    const submittedAt = new Date(o.submitted_at);
+    const timeStr = submittedAt.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+    });
+    const sideClass = o.side === 'buy' ? 'pos' : 'neg';
+    const filled = parseFloat(o.filled_qty || 0);
+    const filledPrice = o.filled_avg_price ? fmtMoney(parseFloat(o.filled_avg_price)) : '—';
+    return `
+      <tr>
+        <td style="font-size:11px;color:var(--ink-soft)">${timeStr}</td>
+        <td class="symbol-cell">${o.symbol}</td>
+        <td class="${sideClass}" style="text-transform:uppercase;font-weight:500">${o.side}</td>
+        <td>${o.qty}</td>
+        <td style="text-transform:uppercase;font-size:11px">${o.type}</td>
+        <td>${filledPrice}</td>
+        <td class="${statusColor[o.status] || 'flat'}" style="text-transform:uppercase;font-size:11px">${o.status.replace('_',' ')}</td>
+      </tr>`;
+  }).join('');
+
+  container.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th>Submitted</th><th>Symbol</th><th>Side</th><th>Qty</th>
+          <th>Type</th><th>Fill Price</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+/* ============= TRADE MODAL ============= */
+
+const tradeState = { symbol: null, side: 'buy' };
+
+function openTradeModal(symbol, preset = {}) {
+  if (state.mode !== 'live') {
+    addAlert('Connect Alpaca to place orders', 'warn');
+    return;
+  }
+  tradeState.symbol = symbol;
+  tradeState.side = preset.side || 'buy';
+
+  const d = state.data[symbol];
+  document.getElementById('trade-title').textContent = `Place Order · ${symbol}`;
+  document.getElementById('trade-symbol').textContent = symbol;
+  document.getElementById('trade-last-price').textContent = d ? fmtMoney(d.price) : '—';
+  document.getElementById('trade-qty').value = preset.qty || 1;
+  document.getElementById('trade-type').value = 'market';
+  document.getElementById('limit-price-row').style.display = 'none';
+  document.getElementById('trade-limit').value = d ? d.price.toFixed(2) : '';
+  document.getElementById('trade-feedback').innerHTML = '';
+
+  // Set side toggle
+  document.getElementById('side-buy').classList.toggle('active', tradeState.side === 'buy');
+  document.getElementById('side-sell').classList.toggle('active', tradeState.side === 'sell');
+
+  updateTradeEstimate();
+  document.getElementById('trade-modal').classList.add('show');
+}
+
+function updateTradeEstimate() {
+  const qty = parseFloat(document.getElementById('trade-qty').value) || 0;
+  const d = state.data[tradeState.symbol];
+  const orderType = document.getElementById('trade-type').value;
+  let price = d ? d.price : 0;
+  if (orderType === 'limit') {
+    price = parseFloat(document.getElementById('trade-limit').value) || price;
+  }
+  const cost = qty * price;
+  document.getElementById('trade-est-cost').textContent = fmtMoney(cost);
+  const bp = state.account ? parseFloat(state.account.buying_power) : 0;
+  document.getElementById('trade-bp').textContent = fmtMoney(bp);
+}
+
+async function submitTrade() {
+  const symbol = tradeState.symbol;
+  const side = tradeState.side;
+  const qty = parseFloat(document.getElementById('trade-qty').value);
+  const orderType = document.getElementById('trade-type').value;
+  const limitPrice = parseFloat(document.getElementById('trade-limit').value);
+  const feedbackEl = document.getElementById('trade-feedback');
+
+  if (!qty || qty <= 0) {
+    feedbackEl.innerHTML = '<div class="trade-feedback error">Quantity must be greater than zero.</div>';
+    return;
+  }
+  if (orderType === 'limit' && (!limitPrice || limitPrice <= 0)) {
+    feedbackEl.innerHTML = '<div class="trade-feedback error">Limit price required for limit orders.</div>';
+    return;
+  }
+
+  const payload = {
+    symbol,
+    qty: qty.toString(),
+    side,
+    type: orderType,
+    time_in_force: 'day'
+  };
+  if (orderType === 'limit') payload.limit_price = limitPrice.toFixed(2);
+
+  const btn = document.getElementById('trade-submit');
+  btn.disabled = true;
+  btn.textContent = 'Submitting…';
+
+  try {
+    const result = await submitOrder(payload);
+    feedbackEl.innerHTML = `<div class="trade-feedback success">Order submitted · ID ${result.id.slice(0, 8)}… · Status: ${result.status}</div>`;
+    addAlert(`${side.toUpperCase()} ${qty} ${symbol} @ ${orderType}${orderType === 'limit' ? ' $' + limitPrice : ''} · ${result.status}`, side, symbol);
+    btn.textContent = 'Submitted ✓';
+
+    // Poll the order status until it fills, terminates, or we give up.
+    // Refresh positions/orders/account along the way so the UI updates as state changes.
+    pollOrderStatus(result.id, symbol, side, feedbackEl).finally(() => {
+      btn.disabled = false;
+      btn.textContent = 'Submit Order';
+    });
+  } catch (e) {
+    feedbackEl.innerHTML = `<div class="trade-feedback error">${e.message}</div>`;
+    btn.disabled = false;
+    btn.textContent = 'Submit Order';
+  }
+}
+
+async function pollOrderStatus(orderId, symbol, side, feedbackEl) {
+  // Terminal statuses — stop polling when we hit one
+  const TERMINAL = new Set(['filled', 'canceled', 'expired', 'rejected', 'done_for_day', 'replaced']);
+  // Poll for up to ~30 seconds: every 1s for first 10s, then every 2s
+  const intervals = [...Array(10).fill(1000), ...Array(10).fill(2000)];
+
+  for (let i = 0; i < intervals.length; i++) {
+    await new Promise(r => setTimeout(r, intervals[i]));
+    try {
+      const order = await alpacaRequest(`/v2/orders/${orderId}`);
+
+      // Always refresh the orders/positions tables to reflect latest state
+      await refreshAccount();
+
+      const filledQty = parseFloat(order.filled_qty || 0);
+      const fillPrice = order.filled_avg_price ? ` @ ${fmtMoney(parseFloat(order.filled_avg_price))}` : '';
+
+      if (order.status === 'filled') {
+        feedbackEl.innerHTML = `<div class="trade-feedback success">Filled · ${filledQty} ${symbol}${fillPrice}</div>`;
+        addAlert(`Filled: ${side.toUpperCase()} ${filledQty} ${symbol}${fillPrice}`, side, symbol);
+        return;
+      }
+      if (TERMINAL.has(order.status)) {
+        feedbackEl.innerHTML = `<div class="trade-feedback error">Order ${order.status.replace('_',' ')}: ${order.reject_reason || 'see Recent Orders for details'}</div>`;
+        addAlert(`Order ${order.status}: ${symbol}`, 'warn', symbol);
+        return;
+      }
+
+      // Still pending — show progress
+      feedbackEl.innerHTML = `<div class="trade-feedback success">Status: ${order.status.replace('_',' ')}${filledQty > 0 ? ` · ${filledQty}/${order.qty} filled` : ''}…</div>`;
+    } catch (e) {
+      console.error('Poll error:', e);
+    }
+  }
+
+  // Timed out — order may still be live (e.g. submitted after-hours and waiting for next open)
+  feedbackEl.innerHTML = `<div class="trade-feedback success">Order still pending — check Recent Orders for updates. Common reason: market closed; order will activate at next open.</div>`;
+}
+
+function renderAlerts() {
+  const list = document.getElementById('alerts-list');
+  const count = document.getElementById('alert-count');
+  count.textContent = `${state.alerts.length} event${state.alerts.length === 1 ? '' : 's'}`;
+
+  if (state.alerts.length === 0) {
+    list.innerHTML = '<div class="alerts-empty">No signals yet — add stocks to begin</div>';
+    return;
+  }
+
+  list.innerHTML = state.alerts.map(a => {
+    const timeStr = a.time.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const colorClass = a.type === 'buy' ? 'pos' : a.type === 'sell' ? 'neg' : a.type === 'warn' ? '' : '';
+    return `
+      <div class="alert-item">
+        <div class="alert-time">${timeStr}</div>
+        <div class="alert-msg ${colorClass}">${a.message}</div>
+      </div>`;
+  }).join('');
+}
+
+function updateMarketStatus() {
+  const now = new Date();
+  const day = now.getUTCDay();
+  // Convert to ET (rough — doesn't handle DST perfectly)
+  const etHours = (now.getUTCHours() - 4 + 24) % 24;
+  const etMinutes = now.getUTCMinutes();
+  const minutesSinceMidnight = etHours * 60 + etMinutes;
+  const marketOpen = 9 * 60 + 30;
+  const marketClose = 16 * 60;
+  let status;
+  if (day === 0 || day === 6) status = 'Closed (Weekend)';
+  else if (minutesSinceMidnight < marketOpen) status = 'Pre-market';
+  else if (minutesSinceMidnight >= marketClose) status = 'After-hours';
+  else status = 'Open';
+  document.getElementById('market-status').textContent = `Market: ${status}`;
+  document.getElementById('clock').textContent = now.toLocaleTimeString('en-US', { hour12: false });
+}
+
+/* ============= REFRESH LOOP ============= */
+
+// Cache daily bars by symbol — indicators only need to recompute once/day
+const barsCache = {};
+
+async function ensureBars(symbol) {
+  if (state.mode === 'demo') {
+    return generateMockHistory(symbol, BASE_PRICES[symbol] || 100);
+  }
+  if (barsCache[symbol]) return barsCache[symbol];
+  try {
+    const bars = await fetchBars(symbol);
+    if (!bars.length) return null;
+    barsCache[symbol] = bars.map(b => b.c);
+    return barsCache[symbol];
+  } catch (e) {
+    console.error(`Failed bars for ${symbol}:`, e);
+    return null;
+  }
+}
+
+async function refreshAll() {
+  if (state.symbols.length === 0) { renderStockList(); return; }
+
+  if (state.mode === 'demo') {
+    // Demo mode: per-symbol mock
+    for (const symbol of state.symbols) {
+      const old = state.data[symbol];
+      const fresh = mockFetchSymbol(symbol);
+      const { indicators, signals } = computeSignals(fresh.history);
+      fresh.indicators = indicators;
+      fresh.signals = signals;
+      if (old) checkSignalChanges(symbol, old.signals, signals);
+      state.data[symbol] = fresh;
+    }
+    renderStockList();
+    return;
+  }
+
+  // Live mode: batched snapshots for prices, cached bars for indicators
+  try {
+    const snapshots = await fetchSnapshots(state.symbols);
+    // Ensure bars are loaded for each symbol (cached after first call)
+    await Promise.all(state.symbols.map(s => ensureBars(s).catch(() => null)));
+
+    for (const symbol of state.symbols) {
+      const snap = snapshots[symbol];
+      const history = barsCache[symbol];
+      if (!snap || !history) {
+        addAlert(`No data for ${symbol} — check ticker is valid`, 'warn');
+        continue;
+      }
+
+      // Latest price from trade, prev close from prevDailyBar
+      const price = snap.latestTrade?.p || snap.minuteBar?.c || snap.dailyBar?.c;
+      const prevClose = snap.prevDailyBar?.c || history[history.length - 2] || price;
+      const change = price - prevClose;
+      const changePct = prevClose ? (change / prevClose) * 100 : 0;
+
+      // Update last bar with current price so indicators reflect "now"
+      const liveHistory = [...history.slice(0, -1), price];
+
+      const { indicators, signals } = computeSignals(liveHistory);
+      const old = state.data[symbol];
+      const fresh = {
+        symbol,
+        name: COMPANY_NAMES[symbol] || symbol,
+        price, change, changePct, prevClose,
+        history: liveHistory,
+        indicators, signals
+      };
+      if (old) checkSignalChanges(symbol, old.signals, signals);
+      state.data[symbol] = fresh;
+    }
+  } catch (e) {
+    console.error('Snapshot refresh failed:', e);
+    addAlert(`Refresh failed: ${e.message}`, 'warn');
+  }
+  renderStockList();
+}
+
+async function refreshAccount() {
+  if (state.mode !== 'live') return;
+  try {
+    state.account = await fetchAccount();
+    state.positions = await fetchPositions();
+    state.orders = await fetchOrders(20);
+    renderPortfolio();
+    renderPositions();
+    renderOrders();
+  } catch (e) {
+    console.error('Account refresh failed:', e);
+  }
+}
+
+/* ============= SETTINGS / ALPACA CONNECTION ============= */
+
+function saveSettings() {
+  const data = {
+    symbols: state.symbols,
+    apiKey: state.apiKey,
+    apiSecret: state.apiSecret
+  };
+  try { sessionStorage.setItem('ledger', JSON.stringify(data)); } catch(e) {}
+}
+
+function loadSettings() {
+  try {
+    const raw = sessionStorage.getItem('ledger');
+    if (!raw) return;
+    const data = JSON.parse(raw);
+    if (data.symbols?.length) state.symbols = data.symbols;
+    if (data.apiKey && data.apiSecret) {
+      state.apiKey = data.apiKey;
+      state.apiSecret = data.apiSecret;
+      state.mode = 'live';
+    }
+  } catch(e) {}
+}
+
+async function connectAlpaca(key, secret) {
+  state.apiKey = key;
+  state.apiSecret = secret;
+  state.mode = 'live';
+  try {
+    state.account = await fetchAccount();
+    state.positions = await fetchPositions();
+    state.orders = await fetchOrders(20);
+    document.querySelector('#conn-status .status-dot').className = 'status-dot live';
+    document.querySelector('#conn-status').innerHTML = '<span class="status-dot live"></span>LIVE · ALPACA';
+    document.getElementById('settings-btn').textContent = '⚙ Connected';
+    addAlert(`Connected to Alpaca paper account · Equity ${fmtMoney(parseFloat(state.account.equity))}`, 'info');
+    saveSettings();
+    renderPortfolio();
+    renderPositions();
+    renderOrders();
+    refreshAll();
+  } catch (e) {
+    state.mode = 'demo';
+    state.apiKey = null;
+    state.apiSecret = null;
+    addAlert(`Connection failed: ${e.message}`, 'warn');
+    alert('Could not connect to Alpaca. Check that your keys are correct and that you\'re using paper trading keys.');
+  }
+}
+
+function disconnectAlpaca() {
+  state.apiKey = null;
+  state.apiSecret = null;
+  state.mode = 'demo';
+  state.account = null;
+  state.positions = [];
+  state.orders = [];
+  // Clear bars cache so a re-connect re-fetches fresh data
+  for (const k of Object.keys(barsCache)) delete barsCache[k];
+  document.querySelector('#conn-status').innerHTML = '<span class="status-dot mock"></span>DEMO MODE';
+  document.getElementById('settings-btn').textContent = '⚙ Connect Alpaca';
+  addAlert('Disconnected from Alpaca · using demo data', 'info');
+  saveSettings();
+  renderPortfolio();
+  renderPositions();
+  renderOrders();
+  refreshAll();
+}
+
+/* ============= EVENT HANDLERS ============= */
+
+document.getElementById('add-btn').addEventListener('click', addSymbol);
+document.getElementById('symbol-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') addSymbol();
+});
+
+function addSymbol() {
+  const input = document.getElementById('symbol-input');
+  const sym = input.value.trim().toUpperCase();
+  if (!sym) return;
+  if (state.symbols.includes(sym)) {
+    input.value = '';
+    return;
+  }
+  if (!/^[A-Z]{1,5}$/.test(sym)) {
+    alert('Symbol must be 1-5 letters.');
+    return;
+  }
+  state.symbols.push(sym);
+  input.value = '';
+  saveSettings();
+  renderStockList();
+  refreshSymbol(sym).then(renderStockList);
+}
+
+document.getElementById('settings-btn').addEventListener('click', () => {
+  document.getElementById('api-key').value = state.apiKey || '';
+  document.getElementById('api-secret').value = state.apiSecret || '';
+  document.getElementById('settings-modal').classList.add('show');
+});
+
+document.getElementById('settings-cancel').addEventListener('click', () => {
+  document.getElementById('settings-modal').classList.remove('show');
+});
+
+document.getElementById('settings-save').addEventListener('click', () => {
+  const key = document.getElementById('api-key').value.trim();
+  const secret = document.getElementById('api-secret').value.trim();
+  if (!key || !secret) {
+    alert('Both keys are required.');
+    return;
+  }
+  document.getElementById('settings-modal').classList.remove('show');
+  connectAlpaca(key, secret);
+});
+
+document.getElementById('settings-disconnect').addEventListener('click', () => {
+  document.getElementById('settings-modal').classList.remove('show');
+  disconnectAlpaca();
+});
+
+/* Trade modal handlers */
+document.getElementById('side-buy').addEventListener('click', () => {
+  tradeState.side = 'buy';
+  document.getElementById('side-buy').classList.add('active');
+  document.getElementById('side-sell').classList.remove('active');
+});
+document.getElementById('side-sell').addEventListener('click', () => {
+  tradeState.side = 'sell';
+  document.getElementById('side-sell').classList.add('active');
+  document.getElementById('side-buy').classList.remove('active');
+});
+document.getElementById('trade-type').addEventListener('change', (e) => {
+  document.getElementById('limit-price-row').style.display = e.target.value === 'limit' ? 'block' : 'none';
+  updateTradeEstimate();
+});
+document.getElementById('trade-qty').addEventListener('input', updateTradeEstimate);
+document.getElementById('trade-limit').addEventListener('input', updateTradeEstimate);
+document.getElementById('trade-cancel').addEventListener('click', () => {
+  document.getElementById('trade-modal').classList.remove('show');
+});
+document.getElementById('trade-submit').addEventListener('click', submitTrade);
+
+document.getElementById('refresh-positions-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('refresh-positions-btn');
+  btn.textContent = '↻ Refreshing…';
+  btn.disabled = true;
+  await refreshAccount();
+  btn.textContent = '↻ Refresh';
+  btn.disabled = false;
+});
+
+/* ============= INIT ============= */
+
+loadSettings();
+renderPortfolio();
+renderStockList();
+renderPositions();
+renderOrders();
+renderAlerts();
+updateMarketStatus();
+setInterval(updateMarketStatus, 1000);
+
+refreshAll().then(() => {
+  renderStockList();
+  if (state.mode === 'live') refreshAccount();
+});
+
+// Periodic refresh
+setInterval(refreshAll, 30000);   // 30s
+setInterval(refreshAccount, 20000); // 20s for account/positions/orders
+
+</script>
+</body>
+</html>
