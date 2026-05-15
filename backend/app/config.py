@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "ledger.db"
     quiver_api_token: str = ""
     massive_api_key: str = ""
+    anthropic_api_key: str = ""
     port: int = 8000
 
     @property

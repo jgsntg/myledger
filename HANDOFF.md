@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-14 (Phase 6 — Sector metadata).
+Last updated: 2026-05-14 (Phase 7 — AI Narratives).
 
 ## Current State
 
@@ -20,6 +20,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading and SQLi
 | 5 | Massive (Polygon.io) integration — client, news tab, earnings calendar | ✅ Done |
 | 5.5 | Local symbol name lookup (NASDAQ/NYSE directory, 12k+ symbols) | ✅ Done |
 | 6 | Sector metadata — Polygon SIC grouping, concentration strip, grouped positions | ✅ Done |
+| 7 | AI Narratives — on-demand briefing + risk narrative via Claude (manual trigger) | ✅ Done |
 
 ---
 
@@ -267,7 +268,7 @@ cd frontend && npm run build        # not run this session — run before deploy
 
 ### Next in Build Sequence
 
-1. **AI Narratives (Phase 7)** — After sector metadata is in place, wire Claude API for:
+1. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test filer sync. — After sector metadata is in place, wire Claude API for:
    - **Morning briefing**: diff yesterday vs. today across positions + Polygon news → Claude narrative.
    - **"Why did I buy this?"** journal: lightweight note on manual trades → Claude synthesis over time.
    - **Risk concentration narrative**: sector breakdown + portfolio weight → Claude plain-English summary.

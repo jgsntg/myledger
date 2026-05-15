@@ -34,9 +34,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const text = await res.text()
     try {
       const json = JSON.parse(text)
-      if (typeof json?.detail === 'string') throw new Error(json.detail)
+      if (json?.detail !== undefined) {
+        const msg = typeof json.detail === 'string' ? json.detail : JSON.stringify(json.detail)
+        throw new Error(msg)
+      }
     } catch (inner) {
-      if (inner instanceof SyntaxError === false) throw inner
+      if (!(inner instanceof SyntaxError)) throw inner
     }
     throw new Error(`${res.status}: ${text}`)
   }
@@ -112,6 +115,17 @@ export const api = {
     request<EarningsEntry[]>(`/api/massive/earnings-calendar?symbols=${symbols.join(',')}`),
   getSectorMap: (symbols: string[]) =>
     request<Record<string, string>>(`/api/massive/sectors?symbols=${symbols.join(',')}`),
+
+  generateBriefing: (positions: Record<string, string>[]) =>
+    request<{ narrative: string }>('/api/ai/briefing', {
+      method: 'POST',
+      body: JSON.stringify({ positions }),
+    }),
+  generateRiskNarrative: (positions: Record<string, string>[], sector_map: Record<string, string>) =>
+    request<{ narrative: string }>('/api/ai/risk-narrative', {
+      method: 'POST',
+      body: JSON.stringify({ positions, sector_map }),
+    }),
 
   getFilers: () => request<TrackedFiler[]>('/api/filers'),
   createFiler: (body: { name: string; filer_type: string; source_id: string }) =>

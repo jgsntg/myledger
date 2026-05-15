@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
 import { Order, Position } from '../../types'
+import AiNarratives from '../AiNarratives'
 import OrdersTable from '../OrdersTable'
 import PositionsTable from '../PositionsTable'
 
@@ -90,6 +91,7 @@ export default function PositionsTab({ positions, orders, autoOrderIds, onTrade 
         </div>
       )}
       <PositionsTable positions={positions} sectorMap={sectorMap} onTrade={onTrade} />
+      <AiNarratives positions={positions} sectorMap={sectorMap} />
       <OrdersTable orders={orders} autoOrderIds={autoOrderIds} />
     </div>
   )

@@ -8,6 +8,7 @@ from app import alpaca, massive, quiver, symbols as symbols_mod
 from app.database import init_db
 from app.routers import (
     account,
+    ai as ai_router,
     alerts,
     evaluate,
     filers,
@@ -67,6 +68,7 @@ for router in [
     evaluate.router,
     insights.router,
     massive_router.router,
+    ai_router.router,
     symbols_router,
 ]:
     app.include_router(router)
