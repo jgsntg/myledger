@@ -36,6 +36,7 @@ class InsightEntry(BaseModel):
     symbol: str
     return_pct: float
     current_price: float
+    closes: List[float] = []
 
 
 class TopPerformersResponse(BaseModel):
@@ -115,6 +116,8 @@ async def _fetch_and_rank(universe: List[str]) -> TopPerformersResponse:
         if not current_close or current_close <= 0:
             continue
 
+        closes_30 = [round(b["c"], 2) for b in sorted_bars[-30:]]
+
         for days in (7, 14, 30):
             target = (today - timedelta(days=days)).isoformat()
             past_close: Optional[float] = None
@@ -129,6 +132,7 @@ async def _fetch_and_rank(universe: List[str]) -> TopPerformersResponse:
                     symbol=symbol,
                     return_pct=round(ret, 2),
                     current_price=round(current_close, 2),
+                    closes=closes_30,
                 )
             )
 

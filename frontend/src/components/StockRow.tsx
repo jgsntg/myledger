@@ -42,6 +42,7 @@ function MiniSparkline({ bars, isUp }: { bars: Bar[]; isUp: boolean }) {
 interface Props {
   symbol: string
   data: StockData | null
+  companyName?: string
   isExpanded: boolean
   onToggle: () => void
   onTrade: (symbol: string) => void
@@ -90,6 +91,7 @@ function SignalBadge({ sig }: { sig: Signal }) {
 export default function StockRow({
   symbol,
   data,
+  companyName,
   isExpanded,
   onToggle,
   onTrade,
@@ -154,17 +156,20 @@ export default function StockRow({
               </span>
             )}
           </div>
-          {data && (
+          {companyName && (
             <div
               style={{
-                fontSize: 11,
+                fontFamily: 'Fraunces, Georgia, serif',
+                fontStyle: 'italic',
+                fontSize: 12,
                 color: 'var(--ink-mute)',
-                textTransform: 'uppercase',
-                letterSpacing: 1,
-                marginTop: 2,
+                marginTop: 3,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
               }}
             >
-              {symbol}
+              {companyName}
             </div>
           )}
         </div>

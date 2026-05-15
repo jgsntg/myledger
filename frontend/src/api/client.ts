@@ -4,6 +4,7 @@ import type {
   AutoTradeEntry,
   Bar,
   ClockData,
+  EarningsEntry,
   EvaluationResult,
   FilerHolding,
   FilerRefreshResult,
@@ -99,12 +100,16 @@ export const api = {
   getInsightsTopPerformers: (refresh = false) =>
     request<TopPerformers>(`/api/insights/top-performers${refresh ? '?refresh=true' : ''}`),
 
+  getTickerNames: (symbols: string[]) =>
+    request<Record<string, string>>(`/api/symbols/names?symbols=${symbols.join(',')}`),
   getTickerDetails: (symbol: string) =>
     request<TickerDetails>(`/api/massive/ticker/${symbol}`),
   getTickerNews: (symbol: string, limit = 10) =>
     request<NewsArticle[]>(`/api/massive/news/${symbol}?limit=${limit}`),
   getTickerFinancials: (symbol: string) =>
     request<Record<string, unknown>[]>(`/api/massive/financials/${symbol}`),
+  getEarningsCalendar: (symbols: string[]) =>
+    request<EarningsEntry[]>(`/api/massive/earnings-calendar?symbols=${symbols.join(',')}`),
 
   getFilers: () => request<TrackedFiler[]>('/api/filers'),
   createFiler: (body: { name: string; filer_type: string; source_id: string }) =>

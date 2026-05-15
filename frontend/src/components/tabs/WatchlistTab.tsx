@@ -7,6 +7,7 @@ interface Props {
   stockData: Record<string, StockData | null>
   signalLog: SignalLogEntry[]
   heldSymbols: Set<string>
+  symbolNames: Record<string, string>
   onAdd: (symbol: string) => Promise<void>
   onRemove: (symbol: string) => void
   onTrade: (symbol: string) => void
@@ -17,6 +18,7 @@ export default function WatchlistTab({
   stockData,
   signalLog,
   heldSymbols,
+  symbolNames,
   onAdd,
   onRemove,
   onTrade,
@@ -34,6 +36,7 @@ export default function WatchlistTab({
       <Watchlist
         symbols={symbols}
         stockData={stockData}
+        symbolNames={symbolNames}
         onAdd={onAdd}
         onRemove={onRemove}
         onTrade={onTrade}

@@ -186,6 +186,7 @@ export interface InsightEntry {
   symbol: string
   return_pct: number
   current_price: number
+  closes: number[]
 }
 
 export interface TopPerformers {
@@ -209,6 +210,15 @@ export interface EvaluationResult {
   has_position: boolean
   position_qty: number | null
   avg_entry_price: number | null
+}
+
+export interface EarningsEntry {
+  symbol: string
+  last_period: string
+  last_end_date: string
+  last_filing_date: string | null
+  estimated_next: string
+  days_until: number
 }
 
 export interface TickerDetails {

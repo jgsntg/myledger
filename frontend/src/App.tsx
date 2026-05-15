@@ -54,6 +54,7 @@ export default function App() {
   })
   const [showSettings, setShowSettings] = useState(false)
   const [autoTrades, setAutoTrades] = useState<AutoTradeEntry[]>([])
+  const [symbolNames, setSymbolNames] = useState<Record<string, string>>({})
   const [activeTab, setActiveTab] = useState<TabId>(() => {
     const hash = window.location.hash.slice(1) as TabId
     return TABS.some((t) => t.id === hash) ? hash : 'watchlist'
@@ -202,6 +203,11 @@ export default function App() {
         setStockData(Object.fromEntries(syms.map((s: string) => [s, null])))
 
         await Promise.all([refreshAccount(), refreshStockData(syms), refreshAutoTrades()])
+
+        // Fetch company names non-blocking — UI works fine without them
+        if (syms.length) {
+          api.getTickerNames(syms).then(setSymbolNames).catch(() => {})
+        }
       } catch (e) {
         console.error('Init failed:', e)
       }
@@ -241,6 +247,7 @@ export default function App() {
     setSymbols((prev) => [...prev, symbol])
     setStockData((prev) => ({ ...prev, [symbol]: null }))
     refreshStockData([symbol])
+    api.getTickerNames([symbol]).then((names) => setSymbolNames((prev) => ({ ...prev, ...names }))).catch(() => {})
   }
 
   async function handleRemoveSymbol(symbol: string) {
@@ -296,6 +303,7 @@ export default function App() {
             stockData={stockData}
             signalLog={signalLog}
             heldSymbols={heldSymbols}
+            symbolNames={symbolNames}
             onAdd={handleAddSymbol}
             onRemove={handleRemoveSymbol}
             onTrade={(sym) => openTrade(sym)}
@@ -323,6 +331,7 @@ export default function App() {
           <DiscoverTab
             settings={appSettings}
             watchlistSymbols={symbols}
+            positions={positions}
             onSettingsUpdate={setAppSettings}
             onAddToWatchlist={handleAddSymbol}
             onTrade={(sym) => openTrade(sym)}

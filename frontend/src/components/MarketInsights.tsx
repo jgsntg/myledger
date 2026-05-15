@@ -7,6 +7,29 @@ type Period = '7' | '14' | '30'
 type SortCol = 'rank' | 'symbol' | 'return' | 'price'
 type SortDir = 'asc' | 'desc'
 
+function InsightSparkline({ closes, positive }: { closes: number[]; positive: boolean }) {
+  if (closes.length < 2) return <div />
+  const w = 80, h = 28, pad = 2
+  const min = Math.min(...closes)
+  const max = Math.max(...closes)
+  const range = max - min || 1
+  const stepX = (w - pad * 2) / (closes.length - 1)
+  const pts = closes.map((p, i) => {
+    const x = pad + i * stepX
+    const y = pad + (h - pad * 2) * (1 - (p - min) / range)
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+  const color = positive ? '#6fcf97' : '#eb5757'
+  const fill  = positive ? 'rgba(111,207,151,0.10)' : 'rgba(235,87,87,0.10)'
+  const area  = `${pad},${h - pad} ${pts} ${pad + (closes.length - 1) * stepX},${h - pad}`
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} width={w} height={h} style={{ display: 'block' }}>
+      <polygon points={area} fill={fill} />
+      <polyline points={pts} fill="none" stroke={color} strokeWidth="1.2" />
+    </svg>
+  )
+}
+
 interface Props {
   settings: AppSettings
   watchlistSymbols: string[]
@@ -28,6 +51,8 @@ export default function MarketInsights({
   const [period, setPeriod] = useState<Period>('7')
   const [sortCol, setSortCol] = useState<SortCol>('return')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
+  const [symbolNames, setSymbolNames] = useState<Record<string, string>>({})
+  const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null)
   const [newSymbol, setNewSymbol] = useState('')
   const [adding, setAdding] = useState(false)
 
@@ -43,6 +68,16 @@ export default function MarketInsights({
       setLoading(false)
     }
   }, [])
+
+  async function handleSymbolHover(symbol: string) {
+    setHoveredSymbol(symbol)
+    if (!symbolNames[symbol]) {
+      try {
+        const names = await api.getTickerNames([symbol])
+        setSymbolNames((prev) => ({ ...prev, ...names }))
+      } catch {}
+    }
+  }
 
   useEffect(() => {
     load()
@@ -219,10 +254,11 @@ export default function MarketInsights({
             {([
               { col: 'rank',   label: '#' },
               { col: 'symbol', label: 'Symbol' },
-              { col: 'return', label: `${period}D Return` },
-              { col: 'price',  label: 'Price' },
+              { col: 'return', label: `${period}D Return`, align: 'right' },
+              { col: null,     label: '30D Trend' },
+              { col: 'price',  label: 'Price', align: 'right' },
               { col: null,     label: '' },
-            ] as { col: SortCol | null; label: string }[]).map(({ col, label }) => (
+            ] as { col: SortCol | null; label: string; align?: string }[]).map(({ col, label, align }) => (
               <div
                 key={label}
                 onClick={col ? () => handleSort(col) : undefined}
@@ -236,11 +272,15 @@ export default function MarketInsights({
                   userSelect: 'none',
                   display: 'flex',
                   alignItems: 'center',
+                  justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
                   gap: 4,
                 }}
               >
+                {col && sortCol === col && align === 'right' && (
+                  <span style={{ fontSize: 10 }}>{sortDir === 'desc' ? '↓' : '↑'}</span>
+                )}
                 {label}
-                {col && sortCol === col && (
+                {col && sortCol === col && align !== 'right' && (
                   <span style={{ fontSize: 10 }}>{sortDir === 'desc' ? '↓' : '↑'}</span>
                 )}
               </div>
@@ -249,18 +289,23 @@ export default function MarketInsights({
           {entries.map((entry, idx) => {
             const positive = entry.return_pct >= 0
             const inWatchlist = watchlistSymbols.includes(entry.symbol)
+            const name = symbolNames[entry.symbol]
+            const isHovered = hoveredSymbol === entry.symbol
             return (
               <div key={entry.symbol} style={dataRowStyle}>
                 <div style={{ ...mutedMonoStyle, fontSize: 12 }}>{idx + 1}</div>
                 <div
-                  style={{
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontSize: 14,
-                    fontWeight: 600,
-                    letterSpacing: '0.5px',
-                  }}
+                  onMouseEnter={() => handleSymbolHover(entry.symbol)}
+                  onMouseLeave={() => setHoveredSymbol(null)}
                 >
-                  {entry.symbol}
+                  <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 600, letterSpacing: '0.5px' }}>
+                    {entry.symbol}
+                  </div>
+                  {name && isHovered && (
+                    <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontStyle: 'italic', fontSize: 11, color: 'var(--ink-mute)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {name}
+                    </div>
+                  )}
                 </div>
                 <div
                   style={{
@@ -268,14 +313,16 @@ export default function MarketInsights({
                     fontSize: 15,
                     fontWeight: 600,
                     color: positive ? 'var(--green)' : 'var(--red)',
+                    textAlign: 'right',
                   }}
                 >
                   {positive ? '+' : ''}{entry.return_pct.toFixed(2)}%
                 </div>
-                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13 }}>
+                <InsightSparkline closes={entry.closes} positive={positive} />
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, textAlign: 'right' }}>
                   {fmtMoney(entry.current_price)}
                 </div>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                <div style={{ display: 'flex', gap: 6 }}>
                   {!inWatchlist && (
                     <button
                       onClick={() => onAddToWatchlist(entry.symbol)}
@@ -345,7 +392,7 @@ export default function MarketInsights({
 
 const headerRowStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '36px 100px 1fr 120px 160px',
+  gridTemplateColumns: '36px 1fr 1fr 80px 1fr 160px',
   gap: 12,
   alignItems: 'center',
   padding: '10px 18px',
@@ -355,7 +402,7 @@ const headerRowStyle: CSSProperties = {
 
 const dataRowStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '36px 100px 1fr 120px 160px',
+  gridTemplateColumns: '36px 1fr 1fr 80px 1fr 160px',
   gap: 12,
   alignItems: 'center',
   padding: '14px 18px',

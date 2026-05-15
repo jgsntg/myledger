@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-14 (post tabbed-UI refactor + sparkline + insights fix).
+Last updated: 2026-05-15 (Massive/Polygon integration + Earnings Calendar + UX fixes).
 
 ## Current State
 
@@ -16,7 +16,9 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading and SQLi
 | 2c | Auto-trading toggle, daily cap, auto-trade log | ✅ Done |
 | 3 | Trade evaluator (tax estimate, holding period, wash-sale) | ✅ Done |
 | 3.5 | Market Insights / Discover (top performers, 50-stock universe + extras) | ✅ Done |
-| 4 | Tabbed UI shell + settings drawer + inline row sparkline | ✅ Done (this session) |
+| 4 | Tabbed UI shell + settings drawer + inline row sparkline | ✅ Done |
+| 5 | Massive (Polygon.io) integration — client, news tab, earnings calendar | ✅ Done |
+| 5.5 | Local symbol name lookup (NASDAQ/NYSE directory, 12k+ symbols) | ✅ Done |
 
 ---
 
@@ -52,6 +54,7 @@ ALPACA_FEED=iex
 API_TOKEN=<shared secret>
 DATABASE_URL=ledger.db
 QUIVER_API_TOKEN=<required for filer sync — currently empty>
+MASSIVE_API_KEY=<Polygon.io API key — filled in>
 ```
 
 **`frontend/.env.local`:**
@@ -59,13 +62,7 @@ QUIVER_API_TOKEN=<required for filer sync — currently empty>
 VITE_API_TOKEN=<same value as backend API_TOKEN>
 ```
 
-Never expose Alpaca keys or Quiver token to the frontend.
-
----
-
-## Current Blocker
-
-`QUIVER_API_TOKEN` is empty in `backend/.env`. Filer Sync will fail with a token error until a real key is added and the backend is restarted. All other features work without it.
+Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
 ---
 
@@ -73,11 +70,11 @@ Never expose Alpaca keys or Quiver token to the frontend.
 
 1. `ALPACA_ENV=paper` is the default. Never switch to `live` without explicit intent.
 2. Auto-trading is **blocked** when `ALPACA_ENV=live` — enforced in both `auto_trader.py` and the settings API.
-3. Backend only for Alpaca and Quiver credentials.
+3. Backend only for Alpaca, Quiver, and Massive credentials.
 4. No financial advice copy.
 5. Python 3.9 compatibility:
    - All new `.py` files: `from __future__ import annotations` at the top.
-   - Pydantic `BaseModel` fields: `Optional[X]` not `X | None` (Pydantic evaluates at class-definition time).
+   - Pydantic `BaseModel` fields: `Optional[X]` not `X | None`.
    - Regular function annotations: `X | None` is fine under `__future__`.
 
 ---
@@ -86,17 +83,19 @@ Never expose Alpaca keys or Quiver token to the frontend.
 
 ### Core
 
-- `app/config.py` — Pydantic settings; reads `backend/.env`. Fields: alpaca keys, `alpaca_env`, `alpaca_feed`, `api_token`, `database_url`, `quiver_api_token`.
-- `app/database.py` — SQLite DDL + `init_db()`. Tables: `watchlist`, `signal_events`, `alerts`, `bar_cache`, `notifications_log`, `tracked_filers`, `filer_transactions`, `filer_holdings`, `system_settings`, `auto_trade_log`. Seeds `trading_mode=manual` on init. Runs safe `PRAGMA`-based migration to add `recommendation` column to `auto_trade_log`.
-- `app/alpaca.py` — Two httpx clients (trading + data). `trading_get`, `trading_post`, `data_get`, `validate_symbol`.
-- `app/quiver.py` — Quiver Quant httpx client. `fetch_congress_trades()`, `parse_amount_range()`. Missing-token guard.
-- `app/edgar.py` — **Stub only.** Returns empty holdings. 13F XML parsing not implemented.
+- `app/config.py` — Pydantic settings. Fields: alpaca keys, `alpaca_env`, `alpaca_feed`, `api_token`, `database_url`, `quiver_api_token`, `massive_api_key`.
+- `app/database.py` — SQLite DDL + `init_db()`. Tables: `watchlist`, `signal_events`, `alerts`, `bar_cache`, `notifications_log`, `tracked_filers`, `filer_transactions`, `filer_holdings`, `system_settings`, `auto_trade_log`.
+- `app/alpaca.py` — Two httpx clients (trading + data).
+- `app/quiver.py` — Quiver Quant client. `fetch_congress_trades()`.
+- `app/massive.py` — Polygon.io client. `fetch_ticker_details()`, `fetch_news()`, `fetch_financials()`, `fetch_earnings_calendar()`, `fetch_ticker_names()`. Uses `asyncio.Semaphore(3)` to cap concurrent Polygon requests and avoid 429s. **Note: Polygon free tier = 5 req/min. Concurrent test calls will exhaust the limit; normal single-user hover/load usage is fine.**
+- `app/symbols.py` — Local symbol name lookup. Downloads `nasdaqlisted.txt` + `otherlisted.txt` from NASDAQ trader at startup (~12,634 symbols). No API key. Also contains `GET /api/symbols/names` router. Strips common suffixes ("Common Stock", "Ordinary Shares", etc.) for clean display names.
+- `app/edgar.py` — **Stub only.** Returns empty holdings.
 - `app/indicators.py` — RSI, EMA, SMA, MACD, Bollinger, `compute_signals()`.
-- `app/scanner.py` — `signal_scanner_loop()` (60s), `alert_scanner_loop()` (30s). Both call `maybe_auto_trade()` after a trigger fires.
-- `app/auto_trader.py` — Mode check, daily cap (1/symbol/day), evaluator pre-flight, order submit, log insert. No-op if `ALPACA_ENV=live`.
-- `app/evaluator.py` — `evaluate_trade(symbol, side, qty)` → `EvaluationResult`. Fetches positions + filled order history from Alpaca. Computes holding period, short/long-term gain, estimated tax (37%/20%), wash-sale risk.
+- `app/scanner.py` — `signal_scanner_loop()` (60s), `alert_scanner_loop()` (30s).
+- `app/auto_trader.py` — Mode check, daily cap, evaluator pre-flight, order submit.
+- `app/evaluator.py` — `evaluate_trade()` → `EvaluationResult`.
 - `app/auth.py` — Bearer token middleware.
-- `app/main.py` — FastAPI app, lifespan (init DB, start/stop Alpaca + Quiver clients, start scanners), CORS, router registration.
+- `app/main.py` — FastAPI app, lifespan (init DB, start clients, load symbol names, start scanners).
 
 ### Routers (`app/routers/`)
 
@@ -110,15 +109,13 @@ Never expose Alpaca keys or Quiver token to the frontend.
 | `indicators.py` | `GET /api/indicators/{symbol}` |
 | `signals.py` | `GET /api/signals/history` |
 | `alerts.py` | `GET/POST /api/alerts`, `PATCH/DELETE /api/alerts/{id}` |
-| `filers.py` | `GET/POST /api/filers`, `DELETE /api/filers/{id}`, `GET /api/filers/{id}/transactions`, `GET /api/filers/{id}/holdings`, `POST /api/filers/{id}/refresh` |
+| `filers.py` | Filer CRUD + refresh + transactions + holdings |
 | `settings.py` | `GET/PATCH /api/settings`, `GET /api/auto-trades` |
 | `evaluate.py` | `POST /api/evaluate` |
-| `insights.py` | `GET /api/insights/top-performers?refresh=` — 50-stock default universe + `insights_extra_symbols`, 1-hour in-memory cache, returns top 50 each for 7d/14d/30d windows sorted by return_pct desc. |
+| `insights.py` | `GET /api/insights/top-performers?refresh=` — 50-stock universe, 1-hour cache. Each `InsightEntry` now includes `closes: List[float]` (last 30 daily closes) for sparkline rendering. `top_n=50`, `limit=10000` on bar fetches (was `50` — that was the cause of only 8 results). |
+| `massive.py` | `GET /api/massive/ticker/{symbol}`, `GET /api/massive/news/{symbol}`, `GET /api/massive/financials/{symbol}`, `GET /api/massive/earnings-calendar?symbols=`, `GET /api/massive/names?symbols=` (deprecated — use `/api/symbols/names`) |
 
-### Tests
-
-- `backend/tests/test_filers.py` — tests for `parse_amount_range` and ASGI refresh flow with mocked Quiver.
-- `pytest` and `ruff` are **not installed** in `backend/.venv`. Install before running.
+`app/symbols.py` also registers `GET /api/symbols/names?symbols=` — this is the preferred name lookup, backed by local data, zero Polygon calls.
 
 ---
 
@@ -126,90 +123,120 @@ Never expose Alpaca keys or Quiver token to the frontend.
 
 ### App shell
 
-- `src/App.tsx` — Bootstrap: loads watchlist, clock, settings, stock data, auto-trade log. Periodic polls: clock 30s, stocks 30s, account 20s, auto-trades 30s. Manages `tradingMode`, `autoTrades`, `heldSymbols`, `tradeTarget`, `activeTab` (persisted to URL hash `#watchlist|#positions|#filers|#discover`).
-- `src/api/client.ts` — All typed API methods including `evaluateTrade`, `getSettings`, `updateSettings`, `getAutoTrades`, `getInsightsTopPerformers`.
-- `src/types/index.ts` — All TypeScript types including `AppSettings`, `EvaluationResult`, `AutoTradeEntry`, `InsightEntry`, `TopPerformers`.
+- `src/App.tsx` — Bootstrap + periodic polls. State includes `symbolNames: Record<string, string>` fetched non-blocking after watchlist loads and on each `handleAddSymbol`. Passes `symbolNames` to `WatchlistTab` and `positions` to `DiscoverTab`.
+- `src/api/client.ts` — All typed API methods. `getTickerNames` hits `/api/symbols/names`. New methods: `getTickerDetails`, `getTickerNews`, `getTickerFinancials`, `getEarningsCalendar`, `getTickerNames`.
+- `src/types/index.ts` — All types. New: `TickerDetails`, `NewsArticle`, `NewsPublisher`, `EarningsEntry`, `EarningsCalendar`. `InsightEntry` now has `closes: number[]`.
 
 ### Tabbed shell layout
 
-The UI is reorganized into a persistent shell + 4 tabs (`Watchlist` / `Positions` / `Filers` / `Discover`). Settings opens in a right-side drawer instead of inline. Design tokens unchanged.
-
 | File | Description |
 |------|-------------|
-| `AppHeader.tsx` | Sticky shell — composes `Header` on top + tab bar below. Exports `TABS` and `TabId`. Tab bar uses `role="tablist"` with `aria-selected`. Active tab gets accent underline + Fraunces italic label. |
-| `Header.tsx` | Top row only (logo, status dot, market clock, AUTO/MANUAL pill, ⚙ Settings button). Prop is `onOpenSettings` (renamed from `onConnect`). The sticky `<header>` wrapper now lives in `AppHeader`. |
-| `PortfolioStrip.tsx` | Persistent 4-cell portfolio summary above tab content. Drops the section title — used as anchor strip, not a section. Cell padding 22×26, value font 30px. |
-| `SettingsDrawer.tsx` | Right-side slide-in (420px, scrim, Esc to close, focus management). Wraps existing `SettingsPanel` unchanged. |
-| `tabs/WatchlistTab.tsx` | 2-col grid (`1fr 380px`, gap 32). `Watchlist` left, `SignalsLog` sticky at `top: 140` right. |
-| `tabs/PositionsTab.tsx` | Vertical stack (gap 44) of `PositionsTable` + `OrdersTable`. |
-| `tabs/FilersTab.tsx` | Vertical stack (gap 44) of `TrackedFilersSection` + `AutoTradeLog`. |
-| `tabs/DiscoverTab.tsx` | Passthrough wrapper around `MarketInsights`. |
+| `AppHeader.tsx` | Sticky shell — tab bar + `Header`. |
+| `Header.tsx` | Top row (logo, status dot, clock, AUTO/MANUAL pill, settings). |
+| `PortfolioStrip.tsx` | Persistent 4-cell portfolio summary above tab content. |
+| `SettingsDrawer.tsx` | Right-side slide-in drawer wrapping `SettingsPanel`. |
+| `tabs/WatchlistTab.tsx` | 2-col grid. Accepts `symbolNames`, passes to `Watchlist`. |
+| `tabs/PositionsTab.tsx` | `PositionsTable` + `OrdersTable`. |
+| `tabs/FilersTab.tsx` | `TrackedFilersSection` + `AutoTradeLog`. |
+| `tabs/DiscoverTab.tsx` | `MarketInsights` + `EarningsCalendar`. Accepts `positions` to union with watchlist symbols for earnings. |
 
 ### Leaf components
 
 | File | Description |
 |------|-------------|
-| `PortfolioSummary.tsx` | **Superseded by `PortfolioStrip.tsx`.** File still exists but is no longer imported anywhere — safe to delete in a future cleanup. |
-| `Watchlist.tsx` | Stock list with add/remove. Passes `heldSymbols` for 13F badge. Rendered inside `WatchlistTab`. |
-| `StockRow.tsx` | Watchlist row. 7-column grid: symbol, price, change, **inline 30-day sparkline**, signals, Trade, ✕. Blue `13F` badge if held by a tracked filer. Click expands `StockDetail` below. `MiniSparkline` component is local to this file (120×32 SVG, last 30 closes, green/red filled area). |
-| `StockDetail.tsx` | Expanded chart + indicator panel. Has 3 internal tabs: Indicators (full 60-day Sparkline + RSI/MA/MACD/BB cards), Signal History, Alerts. |
-| `SignalsLog.tsx` | Live feed of new signal events (buy/sell/warn). Rendered sticky in Watchlist tab. |
+| `StockRow.tsx` | Accepts `companyName?: string`. Renders in *Fraunces italic* below ticker. Grid: `1.2fr 1fr 1fr 120px 1.4fr 70px 40px`. |
+| `StockDetail.tsx` | 4 tabs: Indicators, Signal History, Alerts, **News**. News tab shows `NewsPanel` with company profile (name, sector tag, market cap, description, website) + news feed (title, publisher, published time, description snippet). Lazy-fetches from Polygon on tab open. |
+| `MarketInsights.tsx` | See **Known Issue** below. Includes `InsightSparkline` (80×28 SVG). Hover on symbol triggers lazy name fetch from `/api/symbols/names` (one call per symbol, cached in component state). |
+| `EarningsCalendar.tsx` | Below Market Insights in Discover tab. Shows watchlist + position symbols sorted by days until estimated next earnings. Color coding: red ≤7d, amber ≤14d, green ≤30d. Estimates = `last_filing_date + 91 days`. Disclaimer note in footer. |
+| `Watchlist.tsx` | Accepts `symbolNames?: Record<string, string>`, passes `companyName` to each `StockRow`. |
 | `PositionsTable.tsx` | Open positions with Trade button. |
-| `OrdersTable.tsx` | Recent orders. **Source column** shows green `AUTO` pill or muted `manual` label based on cross-reference with auto-trade log. |
-| `TradeModal.tsx` | Order entry modal. Fetches `TradeEvaluation` on open and on side change. Submit always available — evaluation is advisory only. Global overlay; not inside any tab. |
-| `TradeEvaluation.tsx` | Evaluation panel inside TradeModal. Green PROCEED / amber CAUTION / red HOLD. |
-| `TrackedFilersSection.tsx` | Filer tracking UI: Track form, Sync, Remove, expand row, Mirror button. Auto-mirrors on Sync if mode=auto. |
-| `AutoTradeLog.tsx` | Table of all auto-trade attempts. Section head upgraded to Fraunces italic 26px (matches Positions / Orders section heads). |
-| `MarketInsights.tsx` | Discover tab content. Top 50 performers across 7/14/30-day windows. Defensive descending sort by `return_pct` applied client-side regardless of payload order. Universe = 50-stock default + user extras (`insights_extra_symbols` in settings). |
-| `SettingsPanel.tsx` | Form fields for trade size + tax rates. Now rendered inside `SettingsDrawer`. |
+| `OrdersTable.tsx` | Recent orders with AUTO/manual source pill. |
+| `TradeModal.tsx` | Order entry modal with `TradeEvaluation`. |
+| `TrackedFilersSection.tsx` | Filer tracking UI. |
+| `AutoTradeLog.tsx` | Auto-trade history table. |
+| `SettingsPanel.tsx` | Form inside `SettingsDrawer`. |
+
+---
+
+## Known Issue — Market Insights Table Layout
+
+The `MarketInsights` table column layout has a persistent spacing problem that has not been resolved. **Do not re-apply previously tried approaches.**
+
+### What was tried (all failed or created other issues):
+
+| Approach | Result |
+|----------|--------|
+| `1fr` on Return column only | 8 rows shown (root cause: `limit=50` on Alpaca bars — fixed separately) |
+| `justifyContent: 'start'` with `auto` actions | Empty space after buttons on the right |
+| `1fr` spacer column + `auto` actions | Still expanded; buttons right-aligned with gap |
+| `1fr` on Symbol only | Huge gap between Symbol and Return |
+| `1fr` on Symbol + Return + Price | Too much space between Return and Sparkline; looks like 3 wide disconnected blobs |
+
+### Current state:
+Grid is `'36px 1fr 1fr 80px 1fr 160px'` with Return and Price right-aligned. Still not ideal.
+
+### What to try next:
+The core constraint: the row `div` is a block element that always fills the container (~1350px). Fixed content (rank, sparkline, price, buttons) takes ~450px. The remaining ~900px must go somewhere.
+
+**Recommended approach not yet tried:** Wrap the table in a container with `max-width: 860px` and `margin: 0 auto`. This caps table width at a reasonable size for 6 columns and centers it in the section. It avoids all the column-stretching issues. The user originally said "centralize to the space available" which is consistent with this approach.
+
+---
+
+## Massive (Polygon.io) Integration
+
+### Architecture
+
+- `app/massive.py` — async httpx client, initialized at startup. Key: `MASSIVE_API_KEY` in `backend/.env`.
+- Rate limit guard: `asyncio.Semaphore(3)` on concurrent calls. Polygon free tier = 5 req/min. Paid tiers have higher limits.
+- All Polygon calls are **backend-only**. Frontend never touches Polygon directly.
+
+### Endpoints
+
+| Backend | Purpose |
+|---------|---------|
+| `GET /api/massive/ticker/{symbol}` | Company metadata (name, sector, market cap, description, exchange, list_date, homepage_url) |
+| `GET /api/massive/news/{symbol}?limit=10` | News articles (title, publisher, published_utc, article_url, description, image_url) |
+| `GET /api/massive/financials/{symbol}` | Last 4 quarterly financial statements |
+| `GET /api/massive/earnings-calendar?symbols=` | Earnings timeline per symbol (last period, filing date, estimated next, days_until) |
+
+### Symbol Name Lookup (preferred)
+
+**Do not use `/api/massive/names` for company name lookups.** Use `/api/symbols/names` instead — it's backed by the local NASDAQ/NYSE directory (no API calls, instant, 12k+ symbols). The Massive names endpoint is still present but deprecated for this use case.
+
+---
+
+## Earnings Calendar
+
+- Backend: `fetch_earnings_calendar(symbols)` in `massive.py` fans out to `fetch_financials` with `asyncio.Semaphore(3)`.
+- Estimation: `last_filing_date + 91 days`. If `filing_date` is null, uses `last_end_date + 126 days`.
+- Frontend: `EarningsCalendar.tsx` — loads on Discover tab open, passes union of watchlist + position symbols.
+- Polygon free tier note: calling this for many symbols in quick succession will 429. Normal page-load usage is fine.
+
+---
+
+## Symbol Name Lookup
+
+- `app/symbols.py` — downloads and parses `nasdaqlisted.txt` + `otherlisted.txt` from NASDAQ trader at startup.
+- 12,634 symbols loaded as of 2026-05-15.
+- Name cleaning: splits on " - " to strip class/type suffixes. Also strips " Common Stock", " Ordinary Shares", " Class A", " Class B" trailing suffixes.
+- **Watchlist:** `App.tsx` fetches names for all watchlist symbols on init + on `handleAddSymbol`. Stored in `symbolNames` state, threaded through `WatchlistTab → Watchlist → StockRow`. Shown as *Fraunces italic* subtitle under each ticker.
+- **Market Insights:** Lazy fetch on hover — `handleSymbolHover` calls `getTickerNames([symbol])` the first time a symbol is hovered, then caches in component state. Never fetches all 50 upfront.
 
 ---
 
 ## Auto-Trading System
 
-### Toggle
+*(unchanged — see previous handoff)*
 
-Header pill: **MANUAL** (default) ↔ **AUTO** (green, pulsing dot). Greyed out and disabled when `ALPACA_ENV=live`.
-
-API: `PATCH /api/settings` with `{ "trading_mode": "auto" }`. Returns 403 if `ALPACA_ENV=live`.
-
-### Trigger → Side mapping
-
-| Source | Condition | Side |
-|--------|-----------|------|
-| Signal scanner | Buy signal (RSI oversold, MACD bull cross, etc.) | buy |
-| Signal scanner | Sell signal (RSI overbought, MACD bear cross, etc.) | sell |
-| Alert scanner | `price_below` or `rsi_below` | buy |
-| Alert scanner | `price_above` or `rsi_above` | sell |
-| Filer refresh | New transaction starting with "Sale" | sell |
-| Filer refresh | Any other new transaction | buy |
-
-### Rules
-
-- Hard cap: **1 auto-trade per symbol per calendar day**.
-- All auto-trades are market orders, `time_in_force=day`.
-- Qty: `1` for signals/alerts. For filer trades: fetches snapshot price, computes `round(midpoint / price)` where midpoint = `(low + high) / 2` or `low * 2` if no upper bound.
-- Evaluator runs as a soft pre-flight gate: logs recommendation to `auto_trade_log.recommendation` but always executes.
+Trigger → Side mapping, daily cap (1/symbol/day), evaluator pre-flight, `ALPACA_ENV=live` blocks auto-trading.
 
 ---
 
 ## Trade Evaluator
 
-Called from both TradeModal (UI) and auto_trader (pre-flight). Never blocks — returns `proceed` with empty reasons on any data failure.
+*(unchanged — see previous handoff)*
 
-### Recommendation logic
-
-| Condition | Recommendation |
-|-----------|---------------|
-| Sell, gain > 0, ≤ 30 days to long-term threshold | **hold** — shows tax savings estimate |
-| Sell, gain > 0, > 30 days to long-term threshold | **caution** — shows days to qualify, estimated tax |
-| Sell, gain < 0 | **caution** — wash-sale warning |
-| Buy, sold same symbol at a loss within 30 days | **caution** — wash-sale risk |
-| All other cases | **proceed** |
-
-Tax rate assumptions: short-term 37%, long-term 20%, threshold 365 days. Rates are hardcoded constants in `evaluator.py`.
-
-Data sources: Alpaca `/v2/positions` + `/v2/orders?status=filled` (2-year window, filtered by symbol).
+Recommendation: hold / caution / proceed based on holding period, estimated tax, wash-sale risk.
 
 ---
 
@@ -220,62 +247,67 @@ All checks pass as of last session:
 ```bash
 # Frontend
 cd frontend && npm run type-check   # clean
-cd frontend && npm run build        # clean
+cd frontend && npm run build        # not run this session — run before deploy
 
 # Backend
-.venv/bin/python -c "import ast; ..."  # AST parse all .py files — all OK
+.venv/bin/python -c "import ast; ..."  # AST parse all .py files
 ```
 
 ---
 
-## What changed this session (2026-05-14)
+## What Changed This Session (2026-05-15)
 
-1. **Tabbed UI shell** — `App.tsx` no longer renders one long vertical page. It now renders `AppHeader` (sticky), `PortfolioStrip` (persistent above tab content), one of `WatchlistTab` / `PositionsTab` / `FilersTab` / `DiscoverTab`, the disclaimer, then the `SettingsDrawer` and `TradeModal` overlays. Active tab is stored in `useState<TabId>` and persisted to `window.location.hash`. Tab content unmounts when not active; all state still lives in `App`. See `design_handoff_ledger_tabs/README.md` for the original spec.
-2. **Settings drawer** — `SettingsPanel` is no longer rendered inline below the header. It's wrapped in `SettingsDrawer` (right-side slide-in, scrim, Esc-to-close). `Header.tsx` prop `onConnect` → `onOpenSettings`.
-3. **Inline sparkline on watchlist rows** — `StockRow.tsx` grew a 7th grid column with a 120×32 SVG mini-chart showing the last 30 daily closes (green/red filled area, matches `data.change >= 0`). Grid template: `1.2fr 1fr 1fr 120px 1.4fr 70px 40px`. Full 60-day chart still in the expanded `StockDetail`.
-4. **AutoTradeLog section head** — upgraded from mono 11px uppercase to Fraunces italic 26px with bottom border, matching other section heads.
-5. **Top performers** — backend `insights.py` `top_n` 10 → 50. Frontend adds a defensive `.sort((a,b) => b.return_pct - a.return_pct)` because users reported alphabetic-looking ordering (cause unconfirmed — possibly stale 1-hour cache from before, or stable-sort tiebreak preserving Alpaca's alphabetic response order). Click **Refresh** in the Discover tab after backend restart to bust the in-memory cache.
+### Phase 5 — Massive (Polygon.io) Integration
 
-### Files modified
-- `frontend/src/App.tsx` — return JSX rewritten; state/effects unchanged; added `activeTab` + hash sync.
-- `frontend/src/components/Header.tsx` — outer `<header>` wrapper removed (moved to AppHeader); prop renamed.
-- `frontend/src/components/AutoTradeLog.tsx` — section head restyled.
-- `frontend/src/components/StockRow.tsx` — added local `MiniSparkline`, new grid column.
-- `frontend/src/components/MarketInsights.tsx` — defensive client-side sort.
-- `backend/app/routers/insights.py` — `top_n = 50`.
-
-### Files created
-- `frontend/src/components/AppHeader.tsx`
-- `frontend/src/components/PortfolioStrip.tsx`
-- `frontend/src/components/SettingsDrawer.tsx`
-- `frontend/src/components/tabs/{WatchlistTab,PositionsTab,FilersTab,DiscoverTab}.tsx`
-
-### Known leftover
-- `frontend/src/components/PortfolioSummary.tsx` is now unreferenced. Delete in a future cleanup pass if no one is importing it externally.
-- `design_handoff_ledger_tabs/` is the design reference bundle (HTML/JSX prototype). Untracked. Keep or remove per preference.
+1. **`app/massive.py`** — new Polygon client with `startup`/`shutdown`, `fetch_ticker_details`, `fetch_news`, `fetch_financials`, `fetch_earnings_calendar` (concurrent fan-out with semaphore), `fetch_ticker_names` (deprecated in favor of symbols.py).
+2. **`app/routers/massive.py`** — three endpoints: ticker, news, financials, earnings-calendar, names.
+3. **`app/config.py`** — added `massive_api_key`.
+4. **`app/main.py`** — massive client in lifespan, massive router registered, `symbols_mod.load()` at startup.
+5. **`app/symbols.py`** — local NASDAQ/NYSE name directory. Downloads two NASDAQ trader files at startup, parses into `{symbol: name}` dict, registers `GET /api/symbols/names`.
+6. **`app/routers/insights.py`** — `InsightEntry` now includes `closes: List[float]` (last 30 closes). Fixed `limit=50` → `limit=10000` on Alpaca bar fetches (was the root cause of only 8 symbols appearing).
+7. **`src/components/StockDetail.tsx`** — added **News tab**: `NewsPanel` shows company profile + news feed. Lazy-fetches Polygon ticker details + news on tab open.
+8. **`src/components/EarningsCalendar.tsx`** — new component. Renders below Market Insights in Discover tab.
+9. **`src/components/tabs/DiscoverTab.tsx`** — added `positions` prop, renders `EarningsCalendar`.
+10. **`src/components/MarketInsights.tsx`** — sortable column headers (click to sort by rank/symbol/return/price), `InsightSparkline` column, hover name tooltip (lazy fetch), layout work (ongoing — see Known Issue).
+11. **`src/components/StockRow.tsx`** — accepts `companyName?: string`, shows *Fraunces italic* subtitle.
+12. **`src/components/Watchlist.tsx`** — accepts `symbolNames`, passes to rows.
+13. **`src/components/tabs/WatchlistTab.tsx`** — passes `symbolNames` through.
+14. **`src/types/index.ts`** — `TickerDetails`, `NewsArticle`, `NewsPublisher`, `EarningsEntry`, `closes` on `InsightEntry`.
+15. **`src/api/client.ts`** — `getTickerNames`, `getTickerDetails`, `getTickerNews`, `getTickerFinancials`, `getEarningsCalendar`.
+16. **`src/App.tsx`** — `symbolNames` state, fetched on init and on add.
 
 ---
 
 ## Next Recommended Tasks
 
-### High priority
+### Fix First (before moving on)
 
-1. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart backend, test Sync for `nancy-pelosi`. Still the only thing blocking the full filer flow.
-2. **Sync error display** — `TrackedFilersSection` currently shows the full `502: {"detail": ...}` string. Should extract and show only the `detail` field.
-3. **Validate insights sort** — Open Discover tab, click Refresh, confirm top 50 rows are in descending `return_pct` order across all three windows (7d / 14d / 30d). If still alphabetic-looking, investigate `_fetch_and_rank` more carefully — the sort there is correct, so suspect cache or response shape.
+1. **Market Insights table layout** — See "Known Issue" above. Recommended next approach: `max-width: 860px` + `margin: 0 auto` on the table container. This was not tried. All column-stretch approaches failed.
 
-### Medium priority
+### Next in Build Sequence
 
-4. **Backend dev deps** — Install `pytest`, `pytest-asyncio`, `ruff` into `backend/.venv` and run tests.
-5. **Auto-trade qty for signals** — Currently hardcoded to `1` share. Could add a configurable default trade size in `system_settings` (e.g. `default_trade_usd=500`) so auto-trades size themselves by dollar amount.
-6. **Evaluator tax rates** — Currently hardcoded at 37%/20%. Could expose as user-configurable settings.
-7. **Discover card grid (optional)** — `design_handoff_ledger_tabs/README.md` describes a 4-up card grid with sparklines as a visual upgrade for `MarketInsights`. Currently we render the existing single-column rank table, which is fine.
-8. **Delete `PortfolioSummary.tsx`** — Unreferenced after this session's refactor.
+2. **Sector metadata (Phase 6)** — Enrich the **Positions tab** with sector/industry grouping from Polygon. This is the next step in the Massive integration build sequence.
+   - Source: `GET /api/massive/ticker/{symbol}` → `sic_description` field (already implemented, just not surfaced in Positions).
+   - Backend: new endpoint `GET /api/massive/sectors?symbols=` that batch-fetches `sic_description` for a list of symbols.
+   - Frontend: in `PositionsTab`, group rows by sector and show a sector breakdown (e.g., "Technology 60% · Healthcare 20% · Energy 20%"). Use the same lazy/batch fetch pattern as symbol names.
+   - This data layer directly enables the "risk concentration narratives" feature idea.
 
-### Low priority / future
+3. **AI Narratives (Phase 7)** — After sector metadata is in place, wire Claude API for:
+   - **Morning briefing**: diff yesterday vs. today across positions + Polygon news → Claude narrative.
+   - **"Why did I buy this?"** journal: lightweight note on manual trades → Claude synthesis over time.
+   - **Risk concentration narrative**: sector breakdown + portfolio weight → Claude plain-English summary.
+   - Requires: `ANTHROPIC_API_KEY` in `backend/.env`, new `app/ai.py` client, streaming endpoint.
 
-9. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full implementation would parse SEC EDGAR XML for institutional 13F holdings.
-10. **Live mode workflow** — When `ALPACA_ENV=live`: auto-trading is blocked by design, but a review queue (trades proposed but pending approval) would be the natural next step.
-11. **Notifications delivery** — `notifications_log` entries are written but never sent. Resend (email) was the preferred provider noted in earlier sessions.
-12. **Portfolio analytics** — P&L over time, gain/loss breakdown, benchmark comparison vs S&P.
-13. **Mobile / responsive** — Currently desktop-only (`max-width: 1600px`, fixed grid columns). The 2-col Watchlist (`1fr 380px`) and 4-col portfolio strip both stop looking right below ~1100px. Out of scope until requested.
+### Medium Priority
+
+4. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test Sync for `nancy-pelosi`. Still the only thing blocking the full filer flow.
+5. **Sync error display** — `TrackedFilersSection` shows raw `502: {"detail": ...}`. Should extract and show only the `detail` field.
+6. **Auto-trade qty for signals** — Currently hardcoded to `1` share. Add configurable `default_trade_usd` in `system_settings`.
+
+### Low Priority / Future
+
+7. **EDGAR 13F XML parsing** — `edgar.py` is a stub.
+8. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
+9. **Portfolio analytics** — P&L over time, gain/loss breakdown, benchmark vs S&P.
+10. **Mobile / responsive** — Desktop-only. Below ~1100px the layout breaks.
+11. **Delete `PortfolioSummary.tsx`** — Unreferenced since the tab refactor.

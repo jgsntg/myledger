@@ -5,6 +5,7 @@ import StockRow from './StockRow'
 interface Props {
   symbols: string[]
   stockData: Record<string, StockData | null>
+  symbolNames?: Record<string, string>
   onAdd: (symbol: string) => Promise<void>
   onRemove: (symbol: string) => void
   onTrade: (symbol: string) => void
@@ -14,6 +15,7 @@ interface Props {
 export default function Watchlist({
   symbols,
   stockData,
+  symbolNames = {},
   onAdd,
   onRemove,
   onTrade,
@@ -181,6 +183,7 @@ export default function Watchlist({
               key={sym}
               symbol={sym}
               data={stockData[sym] ?? null}
+              companyName={symbolNames[sym]}
               isExpanded={expanded === sym}
               onToggle={() => setExpanded(expanded === sym ? null : sym)}
               onTrade={onTrade}
