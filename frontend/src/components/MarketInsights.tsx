@@ -146,11 +146,12 @@ export default function MarketInsights({
 
   return (
     <section style={{ marginTop: 40 }}>
+      <div style={{ maxWidth: 860, margin: '0 auto' }}>
       <div
         style={{
           display: 'flex',
           justifyContent: 'space-between',
-          alignItems: 'baseline',
+          alignItems: 'center',
           marginBottom: 16,
           paddingBottom: 12,
           borderBottom: '1px solid var(--line)',
@@ -167,6 +168,29 @@ export default function MarketInsights({
           Market Insights
         </h2>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          {/* Period tabs */}
+          <div style={{ display: 'flex', gap: 2 }}>
+            {(['7', '14', '30'] as Period[]).map((p) => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                style={{
+                  background: period === p ? 'var(--accent)' : 'transparent',
+                  color: period === p ? 'var(--bg)' : 'var(--ink-soft)',
+                  border: `1px solid ${period === p ? 'var(--accent)' : 'var(--line)'}`,
+                  padding: '6px 18px',
+                  fontFamily: 'JetBrains Mono, monospace',
+                  fontSize: 11,
+                  letterSpacing: '1.2px',
+                  textTransform: 'uppercase',
+                  cursor: 'pointer',
+                  fontWeight: period === p ? 600 : 400,
+                }}
+              >
+                {p}D
+              </button>
+            ))}
+          </div>
           {data && (
             <span style={mutedMonoStyle}>
               {data.universe_size} symbols · as of {data.refreshed_at}
@@ -180,30 +204,6 @@ export default function MarketInsights({
             {loading ? 'Loading…' : 'Refresh'}
           </button>
         </div>
-      </div>
-
-      {/* Period tabs */}
-      <div style={{ display: 'flex', gap: 2, marginBottom: 18 }}>
-        {(['7', '14', '30'] as Period[]).map((p) => (
-          <button
-            key={p}
-            onClick={() => setPeriod(p)}
-            style={{
-              background: period === p ? 'var(--accent)' : 'transparent',
-              color: period === p ? 'var(--bg)' : 'var(--ink-soft)',
-              border: `1px solid ${period === p ? 'var(--accent)' : 'var(--line)'}`,
-              padding: '6px 18px',
-              fontFamily: 'JetBrains Mono, monospace',
-              fontSize: 11,
-              letterSpacing: '1.2px',
-              textTransform: 'uppercase',
-              cursor: 'pointer',
-              fontWeight: period === p ? 600 : 400,
-            }}
-          >
-            {p}D
-          </button>
-        ))}
       </div>
 
       {/* Error */}
@@ -248,8 +248,7 @@ export default function MarketInsights({
           style={{
             background: 'var(--line)',
             border: '1px solid var(--line)',
-            maxWidth: 680,
-            margin: '0 auto 20px',
+            marginBottom: 20,
           }}
         >
           {/* Table header */}
@@ -260,7 +259,7 @@ export default function MarketInsights({
               { col: 'return', label: `${period}D Return`, align: 'right' },
               { col: null,     label: '30D Trend' },
               { col: 'price',  label: 'Price', align: 'right' },
-              { col: null,     label: '' },
+              { col: null,     label: 'Actions', align: 'center' },
             ] as { col: SortCol | null; label: string; align?: string }[]).map(({ col, label, align }) => (
               <div
                 key={label}
@@ -275,7 +274,7 @@ export default function MarketInsights({
                   userSelect: 'none',
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: align === 'right' ? 'flex-end' : 'flex-start',
+                  justifyContent: align === 'right' ? 'flex-end' : align === 'center' ? 'center' : 'flex-start',
                   gap: 4,
                 }}
               >
@@ -325,7 +324,7 @@ export default function MarketInsights({
                 <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 13, textAlign: 'right' }}>
                   {fmtMoney(entry.current_price)}
                 </div>
-                <div style={{ display: 'flex', gap: 6 }}>
+                <div style={{ display: 'flex', gap: 6, justifyContent: 'center' }}>
                   <button
                     onClick={() => inWatchlist ? onRemoveFromWatchlist(entry.symbol) : onAddToWatchlist(entry.symbol)}
                     style={inWatchlist ? unwatchButtonStyle : secondaryButtonStyle}
@@ -348,6 +347,7 @@ export default function MarketInsights({
           background: 'var(--bg-elev)',
           border: '1px solid var(--line)',
           padding: '14px 18px',
+          marginTop: 0,
         }}
       >
         <div style={{ ...mutedMonoStyle, marginBottom: 10 }}>Custom universe symbols</div>
@@ -387,13 +387,14 @@ export default function MarketInsights({
           Added symbols are included alongside the 50-stock default universe.
         </div>
       </div>
+      </div>
     </section>
   )
 }
 
 const headerRowStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '36px 80px 110px 80px 90px auto',
+  gridTemplateColumns: '36px 104px 110px 80px 90px auto',
   gap: 12,
   alignItems: 'center',
   padding: '10px 18px',
@@ -403,7 +404,7 @@ const headerRowStyle: CSSProperties = {
 
 const dataRowStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '36px 80px 110px 80px 90px auto',
+  gridTemplateColumns: '36px 104px 110px 80px 90px auto',
   gap: 12,
   alignItems: 'center',
   padding: '14px 18px',
