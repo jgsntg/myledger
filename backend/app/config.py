@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     api_token: str = "change-me"
     database_url: str = "ledger.db"
     quiver_api_token: str = ""
+    massive_api_key: str = ""
     port: int = 8000
 
     @property

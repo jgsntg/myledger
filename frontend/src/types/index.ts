@@ -211,6 +211,40 @@ export interface EvaluationResult {
   avg_entry_price: number | null
 }
 
+export interface TickerDetails {
+  ticker: string
+  name: string
+  description: string
+  sic_description: string | null
+  market_cap: number | null
+  primary_exchange: string | null
+  list_date: string | null
+  homepage_url: string | null
+  branding?: {
+    logo_url?: string
+    icon_url?: string
+  }
+  [key: string]: unknown
+}
+
+export interface NewsPublisher {
+  name: string
+  logo_url?: string
+  favicon_url?: string
+  homepage_url?: string
+}
+
+export interface NewsArticle {
+  id: string
+  title: string
+  published_utc: string
+  article_url: string
+  description: string | null
+  image_url: string | null
+  publisher: NewsPublisher
+  tickers: string[]
+}
+
 export interface AutoTradeEntry {
   id: number
   symbol: string

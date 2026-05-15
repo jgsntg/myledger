@@ -4,6 +4,8 @@ import { fmtMoney } from '../lib/format'
 import { AppSettings, InsightEntry, TopPerformers } from '../types'
 
 type Period = '7' | '14' | '30'
+type SortCol = 'rank' | 'symbol' | 'return' | 'price'
+type SortDir = 'asc' | 'desc'
 
 interface Props {
   settings: AppSettings
@@ -24,6 +26,8 @@ export default function MarketInsights({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [period, setPeriod] = useState<Period>('7')
+  const [sortCol, setSortCol] = useState<SortCol>('return')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [newSymbol, setNewSymbol] = useState('')
   const [adding, setAdding] = useState(false)
 
@@ -80,7 +84,24 @@ export default function MarketInsights({
 
   const rawEntries: InsightEntry[] =
     data ? (period === '7' ? data.d7 : period === '14' ? data.d14 : data.d30) : []
-  const entries = [...rawEntries].sort((a, b) => b.return_pct - a.return_pct)
+
+  function handleSort(col: SortCol) {
+    if (sortCol === col) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortCol(col)
+      setSortDir(col === 'symbol' ? 'asc' : 'desc')
+    }
+  }
+
+  const entries = [...rawEntries].sort((a, b) => {
+    let cmp = 0
+    if (sortCol === 'return') cmp = a.return_pct - b.return_pct
+    else if (sortCol === 'price')  cmp = a.current_price - b.current_price
+    else if (sortCol === 'symbol') cmp = a.symbol.localeCompare(b.symbol)
+    else cmp = 0 // 'rank' preserves server order (return_pct desc)
+    return sortDir === 'asc' ? cmp : -cmp
+  })
 
   const extraSymbols = settings.insights_extra_symbols
     ? settings.insights_extra_symbols.split(',').map((s) => s.trim()).filter(Boolean)
@@ -195,18 +216,33 @@ export default function MarketInsights({
         >
           {/* Table header */}
           <div style={headerRowStyle}>
-            {['#', 'Symbol', `${period}D Return`, 'Price', ''].map((h) => (
+            {([
+              { col: 'rank',   label: '#' },
+              { col: 'symbol', label: 'Symbol' },
+              { col: 'return', label: `${period}D Return` },
+              { col: 'price',  label: 'Price' },
+              { col: null,     label: '' },
+            ] as { col: SortCol | null; label: string }[]).map(({ col, label }) => (
               <div
-                key={h}
+                key={label}
+                onClick={col ? () => handleSort(col) : undefined}
                 style={{
                   fontFamily: 'JetBrains Mono, monospace',
                   fontSize: 10,
-                  color: 'var(--ink-mute)',
+                  color: col && sortCol === col ? 'var(--ink)' : 'var(--ink-mute)',
                   letterSpacing: '1.2px',
                   textTransform: 'uppercase',
+                  cursor: col ? 'pointer' : 'default',
+                  userSelect: 'none',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
                 }}
               >
-                {h}
+                {label}
+                {col && sortCol === col && (
+                  <span style={{ fontSize: 10 }}>{sortDir === 'desc' ? '↓' : '↑'}</span>
+                )}
               </div>
             ))}
           </div>

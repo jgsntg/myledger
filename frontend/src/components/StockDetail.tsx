@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Bar, Indicators, SignalEvent } from '../types'
+import { Alert, Bar, Indicators, NewsArticle, SignalEvent, TickerDetails } from '../types'
 import { fmtMoney, rsiNote, macdNote, bbNote } from '../lib/format'
 import { api } from '../api/client'
 
@@ -11,7 +11,7 @@ interface Props {
   indicators: Indicators | null
 }
 
-type Tab = 'indicators' | 'history' | 'alerts'
+type Tab = 'indicators' | 'history' | 'alerts' | 'news'
 
 // ── Sparkline ──────────────────────────────────────────────────────────────
 
@@ -253,6 +253,142 @@ function AlertsPanel({ symbol }: { symbol: string }) {
   )
 }
 
+// ── News & company tab ─────────────────────────────────────────────────────
+
+function fmtMarketCap(n: number | null): string {
+  if (n == null) return '—'
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`
+  if (n >= 1e9)  return `$${(n / 1e9).toFixed(2)}B`
+  if (n >= 1e6)  return `$${(n / 1e6).toFixed(2)}M`
+  return `$${n.toLocaleString()}`
+}
+
+function NewsPanel({ symbol }: { symbol: string }) {
+  const [details, setDetails] = useState<TickerDetails | null>(null)
+  const [news, setNews]       = useState<NewsArticle[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState<string | null>(null)
+
+  useEffect(() => {
+    setLoading(true)
+    setError(null)
+    Promise.all([
+      api.getTickerDetails(symbol),
+      api.getTickerNews(symbol, 10),
+    ])
+      .then(([d, n]) => { setDetails(d); setNews(n) })
+      .catch((e) => setError((e as Error).message))
+      .finally(() => setLoading(false))
+  }, [symbol])
+
+  if (loading) {
+    return <div style={{ padding: '24px 0', color: 'var(--ink-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>Loading…</div>
+  }
+
+  if (error) {
+    return <div style={{ padding: '24px 0', color: 'var(--red)', fontFamily: 'JetBrains Mono, monospace', fontSize: 11 }}>{error}</div>
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
+      {/* Company profile */}
+      {details && (
+        <div style={{ background: 'var(--bg)', border: '1px solid var(--line)', padding: '20px 22px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+            <span style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 18, fontWeight: 600 }}>{details.name}</span>
+            {details.sic_description && (
+              <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--ink-mute)', background: 'var(--bg-elev)', border: '1px solid var(--line)', padding: '2px 8px', letterSpacing: '1px', textTransform: 'uppercase' }}>
+                {details.sic_description}
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 32, marginBottom: 14, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, color: 'var(--ink-mute)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: 3 }}>Market Cap</div>
+              <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 500 }}>{fmtMarketCap(details.market_cap ?? null)}</div>
+            </div>
+            {details.primary_exchange && (
+              <div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, color: 'var(--ink-mute)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: 3 }}>Exchange</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 500 }}>{details.primary_exchange}</div>
+              </div>
+            )}
+            {details.list_date && (
+              <div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 9, color: 'var(--ink-mute)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: 3 }}>Listed</div>
+                <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 14, fontWeight: 500 }}>{details.list_date}</div>
+              </div>
+            )}
+          </div>
+          {details.description && (
+            <p style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 13, color: 'var(--ink-soft)', lineHeight: 1.65, margin: 0, marginBottom: details.homepage_url ? 12 : 0 }}>
+              {details.description.length > 400 ? details.description.slice(0, 400) + '…' : details.description}
+            </p>
+          )}
+          {details.homepage_url && (
+            <a
+              href={details.homepage_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.5px' }}
+            >
+              {details.homepage_url.replace(/^https?:\/\//, '')} ↗
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* News feed */}
+      <div>
+        <div style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--ink-mute)', letterSpacing: '1.5px', textTransform: 'uppercase', marginBottom: 12 }}>
+          Recent News
+        </div>
+        {news.length === 0 ? (
+          <div style={{ color: 'var(--ink-mute)', fontStyle: 'italic', fontFamily: 'Fraunces, Georgia, serif', fontSize: 14 }}>
+            No recent news for {symbol}.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--line)', border: '1px solid var(--line)' }}>
+            {news.map((article) => {
+              const dt = new Date(article.published_utc)
+              const ago = Math.round((Date.now() - dt.getTime()) / 3600000)
+              const timeLabel = ago < 24
+                ? `${ago}h ago`
+                : dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+              return (
+                <a
+                  key={article.id}
+                  href={article.article_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ background: 'var(--bg-elev)', padding: '14px 16px', textDecoration: 'none', display: 'block' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--ink-mute)', textTransform: 'uppercase', letterSpacing: '1px' }}>
+                      {article.publisher.name}
+                    </span>
+                    <span style={{ fontFamily: 'JetBrains Mono, monospace', fontSize: 10, color: 'var(--ink-mute)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                      {timeLabel}
+                    </span>
+                  </div>
+                  <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 14, color: 'var(--ink)', lineHeight: 1.4, marginBottom: article.description ? 4 : 0 }}>
+                    {article.title}
+                  </div>
+                  {article.description && (
+                    <div style={{ fontFamily: 'Fraunces, Georgia, serif', fontSize: 12, color: 'var(--ink-soft)', lineHeight: 1.5 }}>
+                      {article.description.length > 160 ? article.description.slice(0, 160) + '…' : article.description}
+                    </div>
+                  )}
+                </a>
+              )
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ── Main component ─────────────────────────────────────────────────────────
 
 export default function StockDetail({ symbol, price, isUp, bars, indicators: ind }: Props) {
@@ -289,6 +425,7 @@ export default function StockDetail({ symbol, price, isUp, bars, indicators: ind
         <TabBtn id="indicators" label="Indicators" />
         <TabBtn id="history"    label="Signal History" />
         <TabBtn id="alerts"     label="Alerts" />
+        <TabBtn id="news"       label="News" />
       </div>
 
       <div style={{ padding: '24px 22px' }}>
@@ -312,6 +449,7 @@ export default function StockDetail({ symbol, price, isUp, bars, indicators: ind
 
         {tab === 'history' && <SignalHistory symbol={symbol} />}
         {tab === 'alerts'  && <AlertsPanel  symbol={symbol} />}
+        {tab === 'news'    && <NewsPanel     symbol={symbol} />}
       </div>
     </div>
   )

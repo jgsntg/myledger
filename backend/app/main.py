@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app import alpaca, quiver
+from app import alpaca, massive, quiver
 from app.database import init_db
 from app.routers import (
     account,
@@ -14,6 +14,7 @@ from app.routers import (
     indicators,
     insights,
     market,
+    massive as massive_router,
     orders,
     positions,
     settings,
@@ -30,12 +31,14 @@ async def lifespan(app: FastAPI):
     await init_db()
     await alpaca.startup()
     await quiver.startup()
+    await massive.startup()
     scanner_tasks = start_scanners()
     yield
     for task in scanner_tasks:
         task.cancel()
     await alpaca.shutdown()
     await quiver.shutdown()
+    await massive.shutdown()
 
 
 app = FastAPI(title="Ledger API", lifespan=lifespan)
@@ -61,5 +64,6 @@ for router in [
     settings.router,
     evaluate.router,
     insights.router,
+    massive_router.router,
 ]:
     app.include_router(router)

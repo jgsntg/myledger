@@ -9,7 +9,9 @@ import type {
   FilerRefreshResult,
   FilerTransaction,
   Indicators,
+  NewsArticle,
   Order,
+  TickerDetails,
   TopPerformers,
   TrackedFiler,
   WatchlistEntry,
@@ -96,6 +98,13 @@ export const api = {
 
   getInsightsTopPerformers: (refresh = false) =>
     request<TopPerformers>(`/api/insights/top-performers${refresh ? '?refresh=true' : ''}`),
+
+  getTickerDetails: (symbol: string) =>
+    request<TickerDetails>(`/api/massive/ticker/${symbol}`),
+  getTickerNews: (symbol: string, limit = 10) =>
+    request<NewsArticle[]>(`/api/massive/news/${symbol}?limit=${limit}`),
+  getTickerFinancials: (symbol: string) =>
+    request<Record<string, unknown>[]>(`/api/massive/financials/${symbol}`),
 
   getFilers: () => request<TrackedFiler[]>('/api/filers'),
   createFiler: (body: { name: string; filer_type: string; source_id: string }) =>

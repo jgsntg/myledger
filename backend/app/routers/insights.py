@@ -95,7 +95,7 @@ async def _fetch_and_rank(universe: List[str]) -> TopPerformersResponse:
                 start=start,
                 end=end,
                 feed=app_settings.alpaca_feed,
-                limit=50,
+                limit=10000,
                 adjustment="split",
             )
             bars_chunk = resp.get("bars") if isinstance(resp, dict) else None
