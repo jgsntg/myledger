@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-14 (Phase 8 — Glossary tab).
+Last updated: 2026-05-15 (Market Insights UX polish + deployment research).
 
 ## Current State
 
@@ -166,11 +166,17 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
 ---
 
-## Market Insights Table Layout — Fixed (2026-05-14)
+## Market Insights Table Layout — Current State (2026-05-15)
 
-Applied the recommended `max-width: 860px` + `margin: 0 auto` approach on the table container. Also updated grid columns from `'36px 1fr 1fr 80px 1fr 160px'` to `'36px 1fr 100px 80px 90px auto'` (Symbol gets flex space; Return=100px, Price=90px fixed; Actions=auto).
+Grid columns: `'36px 104px 110px 80px 90px auto'`
+- `#` = 36px, Symbol = 104px (30% wider than original 80px), Return = 110px, Sparkline = 80px, Price = 90px, Actions = auto
 
-If spacing still feels off after user review, next lever is reducing max-width (try 780px) or removing the `gap: 12` between columns.
+Layout decisions made this session:
+- Period tabs (7D/14D/30D) moved from a separate row into the header bar, right-aligned alongside the symbols count and Refresh button.
+- Entire section wrapped in `maxWidth: 860px, margin: '0 auto'` — heading, table, and universe customizer all center together.
+- Symbol column widened from `80px` → `104px` so company name tooltip has room on hover.
+- Actions column buttons centered via `justifyContent: 'center'` on the flex wrapper.
+- Actions column header label added ("ACTIONS"), centered to match buttons.
 
 ---
 
@@ -247,7 +253,18 @@ cd frontend && npm run build        # not run this session — run before deploy
 
 ---
 
-## What Changed This Session (2026-05-15)
+## What Changed This Session (2026-05-15, session 2)
+
+### Market Insights UX Polish
+
+1. **Period tabs** — moved from a standalone row below the heading into the header bar, right-aligned alongside "50 SYMBOLS" and Refresh.
+2. **Section centering** — wrapped entire section in `maxWidth: 860px, margin: '0 auto'` so heading, table, and universe customizer all align centrally on the page.
+3. **Symbol column** — widened from `80px` → `104px` (30% increase) to give the hover company-name tooltip more room.
+4. **Actions column** — buttons centered via `justifyContent: 'center'`; header label added ("ACTIONS") with matching `align: 'center'`.
+
+All changes in `frontend/src/components/MarketInsights.tsx`. Type-check passes clean.
+
+---
 
 ### Phase 5 — Massive (Polygon.io) Integration
 
@@ -270,12 +287,40 @@ cd frontend && npm run build        # not run this session — run before deploy
 
 ---
 
+## Deployment Plan (decided 2026-05-15)
+
+**Target architecture:**
+- **Frontend** → Vercel (free, dead simple Vite/React deploy)
+- **Backend** → Render Starter ($7/mo) or Railway Hobby ($5/mo) — both support persistent processes and keep scanner loops alive
+- **Database** → Keep SQLite on a persistent volume (no migration needed for personal use)
+
+**Why not Vercel for backend:**
+- Serverless = no persistent filesystem → SQLite dies on redeploy
+- Serverless = no long-lived processes → scanner loops stop running
+- Render/Railway both run FastAPI as a real persistent process
+
+**Render free tier warning:** Spins down after 15 min of inactivity, which kills scanner loops. Workaround is UptimeRobot pinging `/api/clock` every 5 min (free), but paid Starter ($7/mo) is more reliable for a trading tool.
+
+**What needs to change before deploy:**
+1. Add `VITE_API_BASE_URL` env var to frontend (currently hardcoded to `localhost:8000`)
+2. Add CORS origin for the Vercel frontend URL in FastAPI
+3. Write a `render.yaml` or `railway.json` build config
+4. Ensure `DATABASE_URL` points to persistent volume path on Render/Railway
+5. Copy all secrets from `backend/.env` into the host's env var dashboard
+
+---
+
 ## Next Recommended Tasks
 
-### Next in Build Sequence
+### Immediate — Production Deploy
 
-1. **AI Narrative enhancements** — Current narratives use positions data only. Could add Polygon news per symbol to the briefing for a richer summary. Also: "Why did I buy this?" trade journal (note on each manual trade → Claude synthesis).
-2. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test filer Sync for `nancy-pelosi`. Still the only blocker for the full Phase 2b copy-trading flow.
+1. **Deploy backend to Render/Railway** — wire up env vars, CORS, build config. Backend first so the URL is known before deploying frontend.
+2. **Deploy frontend to Vercel** — set `VITE_API_BASE_URL` to the Railway/Render backend URL, `VITE_API_TOKEN` to match backend `API_TOKEN`.
+
+### Next in Feature Build Sequence
+
+3. **AI Narrative enhancements** — Current narratives use positions data only. Could add Polygon news per symbol to the briefing for a richer summary. Also: "Why did I buy this?" trade journal (note on each manual trade → Claude synthesis).
+4. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test filer Sync for `nancy-pelosi`. Still the only blocker for the full Phase 2b copy-trading flow.
 
 ### Low Priority / Future
 
