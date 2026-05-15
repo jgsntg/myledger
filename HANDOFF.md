@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-14 (Market Insights layout fix).
+Last updated: 2026-05-14 (Phase 6 — Sector metadata).
 
 ## Current State
 
@@ -19,6 +19,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading and SQLi
 | 4 | Tabbed UI shell + settings drawer + inline row sparkline | ✅ Done |
 | 5 | Massive (Polygon.io) integration — client, news tab, earnings calendar | ✅ Done |
 | 5.5 | Local symbol name lookup (NASDAQ/NYSE directory, 12k+ symbols) | ✅ Done |
+| 6 | Sector metadata — Polygon SIC grouping, concentration strip, grouped positions | ✅ Done |
 
 ---
 
@@ -266,13 +267,7 @@ cd frontend && npm run build        # not run this session — run before deploy
 
 ### Next in Build Sequence
 
-1. **Sector metadata (Phase 6)** — Enrich the **Positions tab** with sector/industry grouping from Polygon. This is the next step in the Massive integration build sequence.
-   - Source: `GET /api/massive/ticker/{symbol}` → `sic_description` field (already implemented, just not surfaced in Positions).
-   - Backend: new endpoint `GET /api/massive/sectors?symbols=` that batch-fetches `sic_description` for a list of symbols.
-   - Frontend: in `PositionsTab`, group rows by sector and show a sector breakdown (e.g., "Technology 60% · Healthcare 20% · Energy 20%"). Use the same lazy/batch fetch pattern as symbol names.
-   - This data layer directly enables the "risk concentration narratives" feature idea.
-
-2. **AI Narratives (Phase 7)** — After sector metadata is in place, wire Claude API for:
+1. **AI Narratives (Phase 7)** — After sector metadata is in place, wire Claude API for:
    - **Morning briefing**: diff yesterday vs. today across positions + Polygon news → Claude narrative.
    - **"Why did I buy this?"** journal: lightweight note on manual trades → Claude synthesis over time.
    - **Risk concentration narrative**: sector breakdown + portfolio weight → Claude plain-English summary.

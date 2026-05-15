@@ -177,6 +177,22 @@ async def fetch_earnings_calendar(symbols: list[str]) -> list[dict[str, Any]]:
     return sorted(entries, key=lambda e: e["days_until"])
 
 
+async def fetch_sector_map(symbols: list[str]) -> dict[str, str]:
+    """Return {symbol: sic_description} for each symbol. Silently omits failures."""
+    sem = asyncio.Semaphore(3)
+
+    async def _one(symbol: str) -> tuple[str, Optional[str]]:
+        async with sem:
+            try:
+                details = await fetch_ticker_details(symbol)
+                return (symbol.upper(), details.get("sic_description"))
+            except Exception:
+                return (symbol.upper(), None)
+
+    results = await asyncio.gather(*[_one(s) for s in symbols])
+    return {sym: sector for sym, sector in results if sector}
+
+
 async def fetch_ticker_names(symbols: list[str]) -> dict[str, str]:
     """Return {symbol: company_name} for each symbol. Silently omits failures."""
     sem = asyncio.Semaphore(3)

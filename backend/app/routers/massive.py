@@ -53,6 +53,20 @@ async def get_ticker_names(symbols: str = Query(..., description="Comma-separate
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.get("/sectors")
+async def get_sectors(symbols: str = Query(..., description="Comma-separated list of tickers")):
+    """Map of symbol → SIC industry description for a list of symbols."""
+    syms: List[str] = [s.strip().upper() for s in symbols.split(",") if s.strip()]
+    if not syms:
+        raise HTTPException(status_code=422, detail="symbols param required")
+    if len(syms) > 100:
+        raise HTTPException(status_code=422, detail="Max 100 symbols per request")
+    try:
+        return await massive.fetch_sector_map(syms)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.get("/earnings-calendar")
 async def get_earnings_calendar(symbols: str = Query(..., description="Comma-separated list of tickers")):
     """Earnings timeline for a list of symbols, sorted by days until estimated next report."""

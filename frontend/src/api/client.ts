@@ -110,6 +110,8 @@ export const api = {
     request<Record<string, unknown>[]>(`/api/massive/financials/${symbol}`),
   getEarningsCalendar: (symbols: string[]) =>
     request<EarningsEntry[]>(`/api/massive/earnings-calendar?symbols=${symbols.join(',')}`),
+  getSectorMap: (symbols: string[]) =>
+    request<Record<string, string>>(`/api/massive/sectors?symbols=${symbols.join(',')}`),
 
   getFilers: () => request<TrackedFiler[]>('/api/filers'),
   createFiler: (body: { name: string; filer_type: string; source_id: string }) =>
