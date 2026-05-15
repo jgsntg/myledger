@@ -8,6 +8,7 @@ import WatchlistTab from './components/tabs/WatchlistTab'
 import PositionsTab from './components/tabs/PositionsTab'
 import FilersTab from './components/tabs/FilersTab'
 import DiscoverTab from './components/tabs/DiscoverTab'
+import GlossaryTab from './components/tabs/GlossaryTab'
 import {
   AccountData,
   AppSettings,
@@ -338,6 +339,7 @@ export default function App() {
             onTrade={(sym) => openTrade(sym)}
           />
         )}
+        {activeTab === 'glossary' && <GlossaryTab />}
 
         <div
           style={{

@@ -7,6 +7,7 @@ export const TABS = [
   { id: 'positions', label: 'Positions', sub: 'Holdings & orders' },
   { id: 'filers', label: 'Filers', sub: 'Smart money' },
   { id: 'discover', label: 'Discover', sub: 'Top performers' },
+  { id: 'glossary', label: 'Glossary', sub: 'Learn the terms' },
 ] as const
 
 export type TabId = (typeof TABS)[number]['id']

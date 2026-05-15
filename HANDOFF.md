@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-14 (Phase 7 — AI Narratives).
+Last updated: 2026-05-14 (Phase 8 — Glossary tab).
 
 ## Current State
 
@@ -21,6 +21,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading and SQLi
 | 5.5 | Local symbol name lookup (NASDAQ/NYSE directory, 12k+ symbols) | ✅ Done |
 | 6 | Sector metadata — Polygon SIC grouping, concentration strip, grouped positions | ✅ Done |
 | 7 | AI Narratives — on-demand briefing + risk narrative via Claude (manual trigger) | ✅ Done |
+| 8 | Glossary tab — 23 terms across Signals, Indicators, Trading, Evaluation & Tax with live search | ✅ Done |
 
 ---
 
@@ -141,9 +142,10 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 | `PortfolioStrip.tsx` | Persistent 4-cell portfolio summary above tab content. |
 | `SettingsDrawer.tsx` | Right-side slide-in drawer wrapping `SettingsPanel`. |
 | `tabs/WatchlistTab.tsx` | 2-col grid. Accepts `symbolNames`, passes to `Watchlist`. |
-| `tabs/PositionsTab.tsx` | `PositionsTable` + `OrdersTable`. |
+| `tabs/PositionsTab.tsx` | Fetches sector map on mount → renders sector concentration strip → `PositionsTable` + `AiNarratives` + `OrdersTable`. |
 | `tabs/FilersTab.tsx` | `TrackedFilersSection` + `AutoTradeLog`. |
 | `tabs/DiscoverTab.tsx` | `MarketInsights` + `EarningsCalendar`. Accepts `positions` to union with watchlist symbols for earnings. |
+| `tabs/GlossaryTab.tsx` | Static educational reference. 23 terms in 4 sections: Signals (8), Indicators (5), Trading (5), Evaluation & Tax (5). Live search filters across term names and descriptions. No backend. |
 
 ### Leaf components
 
