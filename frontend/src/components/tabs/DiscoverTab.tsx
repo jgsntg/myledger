@@ -9,6 +9,7 @@ interface Props {
   positions: Position[]
   onSettingsUpdate: (updated: AppSettings) => void
   onAddToWatchlist: (symbol: string) => void
+  onRemoveFromWatchlist: (symbol: string) => void
   onTrade: (symbol: string) => void
 }
 
@@ -18,6 +19,7 @@ export default function DiscoverTab({
   positions,
   onSettingsUpdate,
   onAddToWatchlist,
+  onRemoveFromWatchlist,
   onTrade,
 }: Props) {
   const earningsSymbols = useMemo(() => {
@@ -32,6 +34,7 @@ export default function DiscoverTab({
         watchlistSymbols={watchlistSymbols}
         onSettingsUpdate={onSettingsUpdate}
         onAddToWatchlist={onAddToWatchlist}
+        onRemoveFromWatchlist={onRemoveFromWatchlist}
         onTrade={onTrade}
       />
       <EarningsCalendar symbols={earningsSymbols} />

@@ -334,6 +334,7 @@ export default function App() {
             positions={positions}
             onSettingsUpdate={setAppSettings}
             onAddToWatchlist={handleAddSymbol}
+            onRemoveFromWatchlist={handleRemoveSymbol}
             onTrade={(sym) => openTrade(sym)}
           />
         )}

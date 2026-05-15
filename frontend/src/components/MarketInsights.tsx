@@ -35,6 +35,7 @@ interface Props {
   watchlistSymbols: string[]
   onSettingsUpdate: (updated: AppSettings) => void
   onAddToWatchlist: (symbol: string) => void
+  onRemoveFromWatchlist: (symbol: string) => void
   onTrade: (symbol: string) => void
 }
 
@@ -43,6 +44,7 @@ export default function MarketInsights({
   watchlistSymbols,
   onSettingsUpdate,
   onAddToWatchlist,
+  onRemoveFromWatchlist,
   onTrade,
 }: Props) {
   const [data, setData] = useState<TopPerformers | null>(null)
@@ -246,7 +248,8 @@ export default function MarketInsights({
           style={{
             background: 'var(--line)',
             border: '1px solid var(--line)',
-            marginBottom: 20,
+            maxWidth: 680,
+            margin: '0 auto 20px',
           }}
         >
           {/* Table header */}
@@ -323,14 +326,12 @@ export default function MarketInsights({
                   {fmtMoney(entry.current_price)}
                 </div>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  {!inWatchlist && (
-                    <button
-                      onClick={() => onAddToWatchlist(entry.symbol)}
-                      style={secondaryButtonStyle}
-                    >
-                      Watch
-                    </button>
-                  )}
+                  <button
+                    onClick={() => inWatchlist ? onRemoveFromWatchlist(entry.symbol) : onAddToWatchlist(entry.symbol)}
+                    style={inWatchlist ? unwatchButtonStyle : secondaryButtonStyle}
+                  >
+                    {inWatchlist ? 'Unwatch' : 'Watch'}
+                  </button>
                   <button onClick={() => onTrade(entry.symbol)} style={primaryButtonStyle}>
                     Trade
                   </button>
@@ -392,7 +393,7 @@ export default function MarketInsights({
 
 const headerRowStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '36px 1fr 1fr 80px 1fr 160px',
+  gridTemplateColumns: '36px 80px 110px 80px 90px auto',
   gap: 12,
   alignItems: 'center',
   padding: '10px 18px',
@@ -402,7 +403,7 @@ const headerRowStyle: CSSProperties = {
 
 const dataRowStyle: CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '36px 1fr 1fr 80px 1fr 160px',
+  gridTemplateColumns: '36px 80px 110px 80px 90px auto',
   gap: 12,
   alignItems: 'center',
   padding: '14px 18px',
@@ -422,7 +423,8 @@ const primaryButtonStyle: CSSProperties = {
   background: 'var(--accent)',
   color: 'var(--bg)',
   border: '1px solid var(--accent)',
-  padding: '7px 12px',
+  padding: '7px 0',
+  width: 76,
   fontFamily: 'JetBrains Mono, monospace',
   fontSize: 10,
   letterSpacing: '1.2px',
@@ -431,11 +433,25 @@ const primaryButtonStyle: CSSProperties = {
   fontWeight: 600,
 }
 
+const unwatchButtonStyle: CSSProperties = {
+  background: 'transparent',
+  color: 'var(--ink-mute)',
+  border: '1px solid var(--line)',
+  padding: '6px 0',
+  width: 76,
+  fontFamily: 'JetBrains Mono, monospace',
+  fontSize: 10,
+  letterSpacing: '1.2px',
+  textTransform: 'uppercase',
+  cursor: 'pointer',
+}
+
 const secondaryButtonStyle: CSSProperties = {
   background: 'transparent',
   color: 'var(--accent)',
   border: '1px solid var(--accent)',
-  padding: '6px 10px',
+  padding: '6px 0',
+  width: 76,
   fontFamily: 'JetBrains Mono, monospace',
   fontSize: 10,
   letterSpacing: '1.2px',

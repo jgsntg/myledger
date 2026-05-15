@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-15 (Massive/Polygon integration + Earnings Calendar + UX fixes).
+Last updated: 2026-05-14 (Market Insights layout fix).
 
 ## Current State
 
@@ -158,27 +158,11 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
 ---
 
-## Known Issue — Market Insights Table Layout
+## Market Insights Table Layout — Fixed (2026-05-14)
 
-The `MarketInsights` table column layout has a persistent spacing problem that has not been resolved. **Do not re-apply previously tried approaches.**
+Applied the recommended `max-width: 860px` + `margin: 0 auto` approach on the table container. Also updated grid columns from `'36px 1fr 1fr 80px 1fr 160px'` to `'36px 1fr 100px 80px 90px auto'` (Symbol gets flex space; Return=100px, Price=90px fixed; Actions=auto).
 
-### What was tried (all failed or created other issues):
-
-| Approach | Result |
-|----------|--------|
-| `1fr` on Return column only | 8 rows shown (root cause: `limit=50` on Alpaca bars — fixed separately) |
-| `justifyContent: 'start'` with `auto` actions | Empty space after buttons on the right |
-| `1fr` spacer column + `auto` actions | Still expanded; buttons right-aligned with gap |
-| `1fr` on Symbol only | Huge gap between Symbol and Return |
-| `1fr` on Symbol + Return + Price | Too much space between Return and Sparkline; looks like 3 wide disconnected blobs |
-
-### Current state:
-Grid is `'36px 1fr 1fr 80px 1fr 160px'` with Return and Price right-aligned. Still not ideal.
-
-### What to try next:
-The core constraint: the row `div` is a block element that always fills the container (~1350px). Fixed content (rank, sparkline, price, buttons) takes ~450px. The remaining ~900px must go somewhere.
-
-**Recommended approach not yet tried:** Wrap the table in a container with `max-width: 860px` and `margin: 0 auto`. This caps table width at a reasonable size for 6 columns and centers it in the section. It avoids all the column-stretching issues. The user originally said "centralize to the space available" which is consistent with this approach.
+If spacing still feels off after user review, next lever is reducing max-width (try 780px) or removing the `gap: 12` between columns.
 
 ---
 
@@ -280,19 +264,15 @@ cd frontend && npm run build        # not run this session — run before deploy
 
 ## Next Recommended Tasks
 
-### Fix First (before moving on)
-
-1. **Market Insights table layout** — See "Known Issue" above. Recommended next approach: `max-width: 860px` + `margin: 0 auto` on the table container. This was not tried. All column-stretch approaches failed.
-
 ### Next in Build Sequence
 
-2. **Sector metadata (Phase 6)** — Enrich the **Positions tab** with sector/industry grouping from Polygon. This is the next step in the Massive integration build sequence.
+1. **Sector metadata (Phase 6)** — Enrich the **Positions tab** with sector/industry grouping from Polygon. This is the next step in the Massive integration build sequence.
    - Source: `GET /api/massive/ticker/{symbol}` → `sic_description` field (already implemented, just not surfaced in Positions).
    - Backend: new endpoint `GET /api/massive/sectors?symbols=` that batch-fetches `sic_description` for a list of symbols.
    - Frontend: in `PositionsTab`, group rows by sector and show a sector breakdown (e.g., "Technology 60% · Healthcare 20% · Energy 20%"). Use the same lazy/batch fetch pattern as symbol names.
    - This data layer directly enables the "risk concentration narratives" feature idea.
 
-3. **AI Narratives (Phase 7)** — After sector metadata is in place, wire Claude API for:
+2. **AI Narratives (Phase 7)** — After sector metadata is in place, wire Claude API for:
    - **Morning briefing**: diff yesterday vs. today across positions + Polygon news → Claude narrative.
    - **"Why did I buy this?"** journal: lightweight note on manual trades → Claude synthesis over time.
    - **Risk concentration narrative**: sector breakdown + portfolio weight → Claude plain-English summary.
@@ -300,9 +280,9 @@ cd frontend && npm run build        # not run this session — run before deploy
 
 ### Medium Priority
 
-4. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test Sync for `nancy-pelosi`. Still the only thing blocking the full filer flow.
-5. **Sync error display** — `TrackedFilersSection` shows raw `502: {"detail": ...}`. Should extract and show only the `detail` field.
-6. **Auto-trade qty for signals** — Currently hardcoded to `1` share. Add configurable `default_trade_usd` in `system_settings`.
+3. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test Sync for `nancy-pelosi`. Still the only thing blocking the full filer flow.
+4. **Sync error display** — `TrackedFilersSection` shows raw `502: {"detail": ...}`. Should extract and show only the `detail` field.
+5. **Auto-trade qty for signals** — Currently hardcoded to `1` share. Add configurable `default_trade_usd` in `system_settings`.
 
 ### Low Priority / Future
 
