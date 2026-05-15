@@ -57,6 +57,7 @@ API_TOKEN=<shared secret>
 DATABASE_URL=ledger.db
 QUIVER_API_TOKEN=<required for filer sync — currently empty>
 MASSIVE_API_KEY=<Polygon.io API key — filled in>
+ANTHROPIC_API_KEY=<filled in — powers AI Narratives>
 ```
 
 **`frontend/.env.local`:**
@@ -85,7 +86,7 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
 ### Core
 
-- `app/config.py` — Pydantic settings. Fields: alpaca keys, `alpaca_env`, `alpaca_feed`, `api_token`, `database_url`, `quiver_api_token`, `massive_api_key`.
+- `app/config.py` — Pydantic settings. Fields: alpaca keys, `alpaca_env`, `alpaca_feed`, `api_token`, `database_url`, `quiver_api_token`, `massive_api_key`, `anthropic_api_key`.
 - `app/database.py` — SQLite DDL + `init_db()`. Tables: `watchlist`, `signal_events`, `alerts`, `bar_cache`, `notifications_log`, `tracked_filers`, `filer_transactions`, `filer_holdings`, `system_settings`, `auto_trade_log`.
 - `app/alpaca.py` — Two httpx clients (trading + data).
 - `app/quiver.py` — Quiver Quant client. `fetch_congress_trades()`.
@@ -96,6 +97,7 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 - `app/scanner.py` — `signal_scanner_loop()` (60s), `alert_scanner_loop()` (30s).
 - `app/auto_trader.py` — Mode check, daily cap, evaluator pre-flight, order submit.
 - `app/evaluator.py` — `evaluate_trade()` → `EvaluationResult`.
+- `app/ai.py` — Claude API client (`claude-sonnet-4-6`). `generate_briefing(positions)` and `generate_risk_narrative(positions, sector_map)`. On-demand only — no auto-scheduling. Raises `RuntimeError` if `ANTHROPIC_API_KEY` is missing.
 - `app/auth.py` — Bearer token middleware.
 - `app/main.py` — FastAPI app, lifespan (init DB, start clients, load symbol names, start scanners).
 
@@ -115,7 +117,8 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 | `settings.py` | `GET/PATCH /api/settings`, `GET /api/auto-trades` |
 | `evaluate.py` | `POST /api/evaluate` |
 | `insights.py` | `GET /api/insights/top-performers?refresh=` — 50-stock universe, 1-hour cache. Each `InsightEntry` now includes `closes: List[float]` (last 30 daily closes) for sparkline rendering. `top_n=50`, `limit=10000` on bar fetches (was `50` — that was the cause of only 8 results). |
-| `massive.py` | `GET /api/massive/ticker/{symbol}`, `GET /api/massive/news/{symbol}`, `GET /api/massive/financials/{symbol}`, `GET /api/massive/earnings-calendar?symbols=`, `GET /api/massive/names?symbols=` (deprecated — use `/api/symbols/names`) |
+| `massive.py` | `GET /api/massive/ticker/{symbol}`, `GET /api/massive/news/{symbol}`, `GET /api/massive/financials/{symbol}`, `GET /api/massive/earnings-calendar?symbols=`, `GET /api/massive/sectors?symbols=`, `GET /api/massive/names?symbols=` (deprecated — use `/api/symbols/names`) |
+| `ai.py` | `POST /api/ai/briefing` — portfolio briefing narrative; `POST /api/ai/risk-narrative` — sector risk summary. Both accept `positions[]` + optional `sector_map`. Return `{"narrative": "..."}`. 503 if key missing, 502 on Claude error. |
 
 `app/symbols.py` also registers `GET /api/symbols/names?symbols=` — this is the preferred name lookup, backed by local data, zero Polygon calls.
 
@@ -151,7 +154,8 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 | `MarketInsights.tsx` | See **Known Issue** below. Includes `InsightSparkline` (80×28 SVG). Hover on symbol triggers lazy name fetch from `/api/symbols/names` (one call per symbol, cached in component state). |
 | `EarningsCalendar.tsx` | Below Market Insights in Discover tab. Shows watchlist + position symbols sorted by days until estimated next earnings. Color coding: red ≤7d, amber ≤14d, green ≤30d. Estimates = `last_filing_date + 91 days`. Disclaimer note in footer. |
 | `Watchlist.tsx` | Accepts `symbolNames?: Record<string, string>`, passes `companyName` to each `StockRow`. |
-| `PositionsTable.tsx` | Open positions with Trade button. |
+| `PositionsTable.tsx` | Open positions grouped by sector (when `sectorMap` provided). Accepts `sectorMap?: Record<string, string>`. |
+| `AiNarratives.tsx` | Two manual-trigger cards in Positions tab: Portfolio Briefing + Risk Analysis. Each has Generate/Regenerate button, loading state, narrative text (Fraunces), and generation timestamp. Hidden when no positions. |
 | `OrdersTable.tsx` | Recent orders with AUTO/manual source pill. |
 | `TradeModal.tsx` | Order entry modal with `TradeEvaluation`. |
 | `TrackedFilersSection.tsx` | Filer tracking UI. |
@@ -268,22 +272,13 @@ cd frontend && npm run build        # not run this session — run before deploy
 
 ### Next in Build Sequence
 
-1. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test filer sync. — After sector metadata is in place, wire Claude API for:
-   - **Morning briefing**: diff yesterday vs. today across positions + Polygon news → Claude narrative.
-   - **"Why did I buy this?"** journal: lightweight note on manual trades → Claude synthesis over time.
-   - **Risk concentration narrative**: sector breakdown + portfolio weight → Claude plain-English summary.
-   - Requires: `ANTHROPIC_API_KEY` in `backend/.env`, new `app/ai.py` client, streaming endpoint.
-
-### Medium Priority
-
-3. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test Sync for `nancy-pelosi`. Still the only thing blocking the full filer flow.
-4. **Sync error display** — `TrackedFilersSection` shows raw `502: {"detail": ...}`. Should extract and show only the `detail` field.
-5. **Auto-trade qty for signals** — Currently hardcoded to `1` share. Add configurable `default_trade_usd` in `system_settings`.
+1. **AI Narrative enhancements** — Current narratives use positions data only. Could add Polygon news per symbol to the briefing for a richer summary. Also: "Why did I buy this?" trade journal (note on each manual trade → Claude synthesis).
+2. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test filer Sync for `nancy-pelosi`. Still the only blocker for the full Phase 2b copy-trading flow.
 
 ### Low Priority / Future
 
-7. **EDGAR 13F XML parsing** — `edgar.py` is a stub.
-8. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
-9. **Portfolio analytics** — P&L over time, gain/loss breakdown, benchmark vs S&P.
-10. **Mobile / responsive** — Desktop-only. Below ~1100px the layout breaks.
-11. **Delete `PortfolioSummary.tsx`** — Unreferenced since the tab refactor.
+3. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
+4. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
+5. **Portfolio analytics** — P&L over time, gain/loss breakdown, benchmark vs S&P.
+6. **Mobile / responsive** — Desktop-only. Below ~1100px the layout breaks.
+7. **Delete `PortfolioSummary.tsx`** — Unreferenced since the tab refactor; safe to delete.
