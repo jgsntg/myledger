@@ -16,7 +16,7 @@ from typing import Optional
 
 import aiosqlite
 
-from app.alpaca import data_get, trading_post
+from app.alpaca import data_get, trading_get, trading_post
 from app.config import settings as app_settings
 from app.evaluator import evaluate_trade
 
@@ -213,6 +213,33 @@ async def maybe_auto_trade(
             risk_level = max(1, min(10, int(float(risk_row["value"]))))
         except (ValueError, TypeError):
             pass
+
+    # Short-selling guard: if allow_short_selling is off, skip sell signals
+    # when there is no existing long position to close.
+    if side == "sell":
+        allow_short: bool = False
+        async with db.execute(
+            "SELECT value FROM system_settings WHERE key = 'allow_short_selling'"
+        ) as cur:
+            ss_row = await cur.fetchone()
+        if ss_row:
+            allow_short = ss_row["value"].lower() == "true"
+
+        if not allow_short:
+            try:
+                pos = await trading_get(f"/v2/positions/{symbol.upper()}")
+                existing_qty = float(pos.get("qty", 0))
+                if existing_qty <= 0:
+                    logger.info(
+                        "Auto-trade skipped: no long position in %s and short selling is disabled", symbol
+                    )
+                    return
+            except Exception:
+                # 404 = no position at all — skip
+                logger.info(
+                    "Auto-trade skipped: no position found for %s and short selling is disabled", symbol
+                )
+                return
 
     # Read tax settings for evaluator
     short_term_rate, long_term_rate, long_term_days = 0.37, 0.20, 365

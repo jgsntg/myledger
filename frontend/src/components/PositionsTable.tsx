@@ -1,3 +1,5 @@
+import { useState } from 'react'
+import { api } from '../api/client'
 import { Position } from '../types'
 import { fmtMoney, fmtPct, deltaClass } from '../lib/format'
 
@@ -12,6 +14,18 @@ function toTitleCase(s: string) {
 }
 
 export default function PositionsTable({ positions, sectorMap = {}, onTrade }: Props) {
+  const [symbolNames, setSymbolNames] = useState<Record<string, string>>({})
+  const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null)
+
+  async function handleSymbolHover(symbol: string) {
+    setHoveredSymbol(symbol)
+    if (!symbolNames[symbol]) {
+      try {
+        const names = await api.getTickerNames([symbol])
+        setSymbolNames((prev) => ({ ...prev, ...names }))
+      } catch {}
+    }
+  }
   // Group positions by sector when sector data is available
   const hassectors = positions.some((p) => sectorMap[p.symbol])
   const grouped: Array<{ sector: string; rows: Position[] }> = []
@@ -140,28 +154,63 @@ export default function PositionsTable({ positions, sectorMap = {}, onTrade }: P
                 )}
                 {rows.map((p) => {
                   const qty = parseFloat(p.qty)
+                  const absQty = Math.abs(qty)
+                  const isLong = qty > 0
                   const avgEntry = parseFloat(p.avg_entry_price)
                   const current = parseFloat(p.current_price)
-                  const mktVal = parseFloat(p.market_value)
+                  const mktVal = Math.abs(parseFloat(p.market_value))
                   const upl = parseFloat(p.unrealized_pl)
                   const uplPct = parseFloat(p.unrealized_plpc) * 100
                   const dc = deltaClass(upl)
-                  const col =
+                  const plColor =
                     dc === 'pos' ? 'var(--green)' : dc === 'neg' ? 'var(--red)' : 'var(--ink)'
+                  const closeSide = isLong ? 'sell' : 'buy'
+                  const closeQty = String(absQty)
                   return (
                     <tr key={p.symbol}>
-                      <td style={cellStyle({ fontFamily: 'Fraunces, Georgia, serif', fontSize: 16, fontWeight: 500 })}>
+                      <td
+                        style={cellStyle({ fontFamily: 'Fraunces, Georgia, serif', fontSize: 16, fontWeight: 500, cursor: 'default' })}
+                        onMouseEnter={() => handleSymbolHover(p.symbol)}
+                        onMouseLeave={() => setHoveredSymbol(null)}
+                      >
                         {p.symbol}
+                        {hoveredSymbol === p.symbol && symbolNames[p.symbol] && (
+                          <div style={{
+                            fontFamily: 'Fraunces, Georgia, serif',
+                            fontStyle: 'italic',
+                            fontSize: 11,
+                            color: 'var(--ink-mute)',
+                            marginTop: 2,
+                            fontWeight: 400,
+                          }}>
+                            {symbolNames[p.symbol]}
+                          </div>
+                        )}
                       </td>
-                      <td style={cellStyle()}>{qty}</td>
+                      <td style={cellStyle()}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span>{absQty}</span>
+                          <span style={{
+                            fontFamily: 'JetBrains Mono, monospace',
+                            fontSize: 8,
+                            letterSpacing: '1px',
+                            textTransform: 'uppercase',
+                            padding: '1px 5px',
+                            border: `1px solid ${isLong ? 'var(--green)' : 'var(--red)'}`,
+                            color: isLong ? 'var(--green)' : 'var(--red)',
+                          }}>
+                            {isLong ? 'long' : 'short'}
+                          </span>
+                        </span>
+                      </td>
                       <td style={cellStyle()}>{fmtMoney(avgEntry)}</td>
                       <td style={cellStyle()}>{fmtMoney(current)}</td>
                       <td style={cellStyle()}>{fmtMoney(mktVal)}</td>
-                      <td style={cellStyle({ color: col })}>{upl >= 0 ? '+' : ''}{fmtMoney(upl)}</td>
-                      <td style={cellStyle({ color: col })}>{fmtPct(uplPct)}</td>
+                      <td style={cellStyle({ color: plColor })}>{upl >= 0 ? '+' : ''}{fmtMoney(upl)}</td>
+                      <td style={cellStyle({ color: plColor })}>{fmtPct(uplPct)}</td>
                       <td style={cellStyle()}>
                         <button
-                          onClick={() => onTrade(p.symbol, 'sell', p.qty)}
+                          onClick={() => onTrade(p.symbol, closeSide, closeQty)}
                           style={{
                             background: 'transparent',
                             border: '1px solid var(--accent)',

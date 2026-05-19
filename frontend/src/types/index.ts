@@ -181,6 +181,7 @@ export interface AppSettings {
   tax_long_term_days: number
   insights_extra_symbols: string
   risk_level: number
+  allow_short_selling: boolean
 }
 
 export interface InsightEntry {

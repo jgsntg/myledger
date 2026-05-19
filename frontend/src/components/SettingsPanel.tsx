@@ -25,6 +25,7 @@ export default function SettingsPanel({ settings, onSave }: Props) {
   const [longRate, setLongRate] = useState(String(Math.round(settings.tax_long_term_rate * 100)))
   const [longDays, setLongDays] = useState(String(settings.tax_long_term_days))
   const [riskLevel, setRiskLevel] = useState(settings.risk_level ?? 5)
+  const [allowShorts, setAllowShorts] = useState(settings.allow_short_selling ?? false)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -40,6 +41,7 @@ export default function SettingsPanel({ settings, onSave }: Props) {
         tax_long_term_rate: parseFloat(longRate) / 100,
         tax_long_term_days: parseInt(longDays, 10),
         risk_level: riskLevel,
+        allow_short_selling: allowShorts,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2500)
@@ -153,6 +155,45 @@ export default function SettingsPanel({ settings, onSave }: Props) {
             : riskLevel === 4
             ? 'Position size: 90% of default trade amount'
             : 'Position size: 120% of default trade amount'}
+        </div>
+      </div>
+
+      {/* ── Short selling toggle ── */}
+      <div style={{ marginBottom: 20 }}>
+        <div
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
+          onClick={() => setAllowShorts((v) => !v)}
+        >
+          <div>
+            <div style={labelStyle}>Allow Short Selling</div>
+            <div style={{ ...hintStyle, marginTop: 4 }}>
+              {allowShorts
+                ? 'Auto-trader may sell symbols with no existing long position, opening a short.'
+                : 'Auto-trader will only sell when a long position already exists. Sell signals on unowned symbols are skipped.'}
+            </div>
+          </div>
+          {/* Toggle pill */}
+          <div style={{
+            width: 40,
+            height: 22,
+            borderRadius: 11,
+            background: allowShorts ? 'var(--accent)' : 'var(--line)',
+            position: 'relative',
+            flexShrink: 0,
+            transition: 'background 0.15s',
+            marginLeft: 24,
+          }}>
+            <div style={{
+              position: 'absolute',
+              top: 3,
+              left: allowShorts ? 21 : 3,
+              width: 16,
+              height: 16,
+              borderRadius: '50%',
+              background: 'var(--bg)',
+              transition: 'left 0.15s',
+            }} />
+          </div>
         </div>
       </div>
 

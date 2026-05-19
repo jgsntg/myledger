@@ -22,6 +22,7 @@ class SettingsPatch(BaseModel):
     tax_long_term_days: Optional[int] = None
     insights_extra_symbols: Optional[str] = None
     risk_level: Optional[int] = None
+    allow_short_selling: Optional[bool] = None
 
 
 async def _read_settings(db: aiosqlite.Connection) -> dict:
@@ -35,6 +36,7 @@ async def _read_settings(db: aiosqlite.Connection) -> dict:
     data.setdefault("tax_long_term_days", "365")
     data.setdefault("insights_extra_symbols", "")
     data.setdefault("risk_level", "5")
+    data.setdefault("allow_short_selling", "false")
     for key in ("default_trade_usd", "tax_short_term_rate", "tax_long_term_rate"):
         try:
             data[key] = float(data[key])
@@ -48,6 +50,7 @@ async def _read_settings(db: aiosqlite.Connection) -> dict:
         data["risk_level"] = max(1, min(10, int(float(data["risk_level"]))))
     except (ValueError, TypeError):
         data["risk_level"] = 5
+    data["allow_short_selling"] = data["allow_short_selling"].lower() == "true"
     data["alpaca_env"] = app_settings.alpaca_env
     return data
 
@@ -117,6 +120,12 @@ async def update_settings(
         await db.execute(
             "INSERT OR REPLACE INTO system_settings (key, value) VALUES ('risk_level', ?)",
             (str(level),),
+        )
+
+    if body.allow_short_selling is not None:
+        await db.execute(
+            "INSERT OR REPLACE INTO system_settings (key, value) VALUES ('allow_short_selling', ?)",
+            ("true" if body.allow_short_selling else "false",),
         )
 
     await db.commit()

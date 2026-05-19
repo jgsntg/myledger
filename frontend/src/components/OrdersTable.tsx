@@ -1,10 +1,12 @@
 import { useState } from 'react'
-import { Order } from '../types'
+import { api } from '../api/client'
+import { AutoTradeEntry, Order } from '../types'
 import { fmtMoney } from '../lib/format'
 
 interface Props {
   orders: Order[]
   autoOrderIds?: Set<string>
+  autoTrades?: AutoTradeEntry[]
   onMarkAuto?: (orderId: string) => Promise<void>
 }
 
@@ -18,8 +20,36 @@ const STATUS_COLOR: Record<string, string> = {
   done_for_day: 'var(--ink-soft)',
 }
 
-export default function OrdersTable({ orders, autoOrderIds, onMarkAuto }: Props) {
+export default function OrdersTable({ orders, autoOrderIds, autoTrades, onMarkAuto }: Props) {
   const [marking, setMarking] = useState<Set<string>>(new Set())
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [symbolNames, setSymbolNames] = useState<Record<string, string>>({})
+  const [hoveredSymbol, setHoveredSymbol] = useState<string | null>(null)
+
+  // order_id → AutoTradeEntry for reasoning lookup
+  const tradeByOrderId = new Map<string, AutoTradeEntry>()
+  for (const t of autoTrades ?? []) {
+    if (t.order_id) tradeByOrderId.set(t.order_id, t)
+  }
+
+  function toggleExpanded(orderId: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev)
+      if (next.has(orderId)) next.delete(orderId)
+      else next.add(orderId)
+      return next
+    })
+  }
+
+  async function handleSymbolHover(symbol: string) {
+    setHoveredSymbol(symbol)
+    if (!symbolNames[symbol]) {
+      try {
+        const names = await api.getTickerNames([symbol])
+        setSymbolNames((prev) => ({ ...prev, ...names }))
+      } catch {}
+    }
+  }
 
   async function handleMarkAuto(orderId: string) {
     if (!onMarkAuto) return
@@ -90,7 +120,7 @@ export default function OrdersTable({ orders, autoOrderIds, onMarkAuto }: Props)
         >
           <thead>
             <tr>
-              {['Submitted', 'Symbol', 'Side', 'Qty', 'Type', 'Fill Price', 'Status', 'Source'].map((h) => (
+              {['Submitted', 'Symbol', 'Side', 'Qty', 'Type', 'Fill Price', 'Status', 'Source', ''].map((h) => (
                 <th
                   key={h}
                   style={{
@@ -126,9 +156,13 @@ export default function OrdersTable({ orders, autoOrderIds, onMarkAuto }: Props)
                 : '—'
               const statusColor = STATUS_COLOR[o.status] ?? 'var(--ink-soft)'
               const isAuto = autoOrderIds?.has(o.id) ?? false
+              const tradeEntry = tradeByOrderId.get(o.id)
+              const hasReasoning = isAuto && !!tradeEntry?.reasoning
+              const isExpanded = expanded.has(o.id)
 
               return (
-                <tr key={o.id}>
+                <>
+                <tr key={o.id} style={{ cursor: hasReasoning ? 'pointer' : 'default' }} onClick={() => hasReasoning && toggleExpanded(o.id)}>
                   {[
                     <td
                       key="t"
@@ -150,9 +184,24 @@ export default function OrdersTable({ orders, autoOrderIds, onMarkAuto }: Props)
                         fontFamily: 'Fraunces, Georgia, serif',
                         fontSize: 16,
                         fontWeight: 500,
+                        cursor: 'default',
                       }}
+                      onMouseEnter={() => handleSymbolHover(o.symbol)}
+                      onMouseLeave={() => setHoveredSymbol(null)}
                     >
                       {o.symbol}
+                      {hoveredSymbol === o.symbol && symbolNames[o.symbol] && (
+                        <div style={{
+                          fontFamily: 'Fraunces, Georgia, serif',
+                          fontStyle: 'italic',
+                          fontSize: 11,
+                          color: 'var(--ink-mute)',
+                          marginTop: 2,
+                          fontWeight: 400,
+                        }}>
+                          {symbolNames[o.symbol]}
+                        </div>
+                      )}
                     </td>,
                     <td
                       key="side"
@@ -271,8 +320,72 @@ export default function OrdersTable({ orders, autoOrderIds, onMarkAuto }: Props)
                         </span>
                       )}
                     </td>,
+                    <td
+                      key="expand"
+                      style={{
+                        padding: '14px 10px',
+                        borderBottom: '1px solid var(--line-soft)',
+                        textAlign: 'center',
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 10,
+                        color: 'var(--ink-mute)',
+                        width: 28,
+                      }}
+                    >
+                      {hasReasoning ? (isExpanded ? '▲' : '▼') : null}
+                    </td>,
                   ]}
                 </tr>
+                {isExpanded && tradeEntry?.reasoning && (
+                  <tr key={`${o.id}-reasoning`}>
+                    <td
+                      colSpan={9}
+                      style={{
+                        padding: '10px 18px 14px 18px',
+                        borderBottom: '1px solid var(--line-soft)',
+                        background: 'var(--bg)',
+                      }}
+                    >
+                      <div style={{
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 10,
+                        color: 'var(--ink-mute)',
+                        letterSpacing: '1px',
+                        textTransform: 'uppercase',
+                        marginBottom: 6,
+                      }}>
+                        Why this trade was taken
+                      </div>
+                      <div style={{
+                        fontFamily: 'Fraunces, Georgia, serif',
+                        fontSize: 14,
+                        fontStyle: 'italic',
+                        color: 'var(--ink-soft)',
+                        lineHeight: 1.7,
+                        maxWidth: 720,
+                      }}>
+                        {tradeEntry.reasoning}
+                      </div>
+                      {tradeEntry.recommendation && tradeEntry.recommendation !== 'proceed' && (
+                        <div style={{
+                          marginTop: 8,
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          fontFamily: 'JetBrains Mono, monospace',
+                          fontSize: 9,
+                          letterSpacing: '1px',
+                          textTransform: 'uppercase',
+                          padding: '2px 7px',
+                          border: '1px solid var(--amber, #fbbf24)',
+                          color: 'var(--amber, #fbbf24)',
+                        }}>
+                          evaluator: {tradeEntry.recommendation}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                )}
+                </>
               )
             })}
           </tbody>

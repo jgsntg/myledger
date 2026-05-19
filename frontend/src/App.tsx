@@ -320,6 +320,7 @@ export default function App() {
             positions={positions}
             orders={orders}
             autoOrderIds={autoOrderIds}
+            autoTrades={autoTrades}
             onTrade={(sym, side, qty) => openTrade(sym, side, qty)}
             onMarkAuto={handleMarkAuto}
           />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../../api/client'
-import { Order, Position } from '../../types'
+import { AutoTradeEntry, Order, Position } from '../../types'
 import AiNarratives from '../AiNarratives'
 import OrdersTable from '../OrdersTable'
 import PositionsTable from '../PositionsTable'
@@ -9,6 +9,7 @@ interface Props {
   positions: Position[]
   orders: Order[]
   autoOrderIds: Set<string>
+  autoTrades: AutoTradeEntry[]
   onTrade: (symbol: string, presetSide: 'buy' | 'sell', presetQty: string) => void
   onMarkAuto?: (orderId: string) => Promise<void>
 }
@@ -17,7 +18,7 @@ function toTitleCase(s: string) {
   return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-export default function PositionsTab({ positions, orders, autoOrderIds, onTrade, onMarkAuto }: Props) {
+export default function PositionsTab({ positions, orders, autoOrderIds, autoTrades, onTrade, onMarkAuto }: Props) {
   const [sectorMap, setSectorMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -93,7 +94,7 @@ export default function PositionsTab({ positions, orders, autoOrderIds, onTrade,
       )}
       <PositionsTable positions={positions} sectorMap={sectorMap} onTrade={onTrade} />
       <AiNarratives positions={positions} sectorMap={sectorMap} />
-      <OrdersTable orders={orders} autoOrderIds={autoOrderIds} onMarkAuto={onMarkAuto} />
+      <OrdersTable orders={orders} autoOrderIds={autoOrderIds} autoTrades={autoTrades} onMarkAuto={onMarkAuto} />
     </div>
   )
 }

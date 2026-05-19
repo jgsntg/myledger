@@ -110,6 +110,18 @@ const SECTIONS: Section[] = [
     subtitle: 'Core concepts for how orders, positions, and automation work in Ledger.',
     terms: [
       {
+        term: 'Long Position',
+        badge: 'buy',
+        description:
+          'Owning shares of a stock with the expectation that the price will rise. You profit when the price goes up. In Ledger, a long position shows a positive quantity (e.g. +3). Closing a long means selling your shares.',
+      },
+      {
+        term: 'Short Position',
+        badge: 'sell',
+        description:
+          'Selling shares you do not own, borrowed from a broker, with the expectation that the price will fall. You profit when the price drops and buy back cheaper. In Ledger, a short position shows a negative quantity (e.g. −4). Closing a short means buying the shares back. Short selling can be enabled or disabled in Settings.',
+      },
+      {
         term: 'Paper Trading',
         badge: 'info',
         description:

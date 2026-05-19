@@ -140,6 +140,7 @@ async def init_db() -> None:
             ("tax_long_term_days", "365"),
             ("insights_extra_symbols", ""),
             ("risk_level", "5"),
+            ("allow_short_selling", "false"),
         ]:
             await db.execute(
                 "INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)",
