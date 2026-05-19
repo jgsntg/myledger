@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS auto_trade_log (
   status         TEXT NOT NULL,
   error          TEXT,
   recommendation TEXT,
+  reasoning      TEXT,
   created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX IF NOT EXISTS idx_auto_trade_log_created
@@ -138,14 +139,17 @@ async def init_db() -> None:
             ("tax_long_term_rate", "0.20"),
             ("tax_long_term_days", "365"),
             ("insights_extra_symbols", ""),
+            ("risk_level", "5"),
         ]:
             await db.execute(
                 "INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)",
                 (_key, _val),
             )
-        # Safe migration: add recommendation column if the table was created before Phase 3
+        # Safe migrations for auto_trade_log
         async with db.execute("PRAGMA table_info(auto_trade_log)") as cur:
             cols = {row[1] async for row in cur}
         if "recommendation" not in cols:
             await db.execute("ALTER TABLE auto_trade_log ADD COLUMN recommendation TEXT")
+        if "reasoning" not in cols:
+            await db.execute("ALTER TABLE auto_trade_log ADD COLUMN reasoning TEXT")
         await db.commit()

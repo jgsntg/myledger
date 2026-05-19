@@ -4,6 +4,7 @@ Rules:
 - Only fires when system_settings.trading_mode == 'auto'.
 - Capped at 1 auto-trade per symbol per calendar day.
 - Safety guard: blocked if ALPACA_ENV == 'live' (settings router enforces this too).
+- Risk level (1–10) controls evaluator gate strength and trade size multiplier.
 - Does NOT close the passed db connection; caller owns the lifecycle.
 """
 
@@ -22,6 +23,143 @@ from app.evaluator import evaluate_trade
 logger = logging.getLogger(__name__)
 
 _DAILY_CAP = 1  # max auto-trades per symbol per calendar day
+
+# Human-readable explanations per signal label (why action was taken, potential benefit)
+_SIGNAL_COPY: dict[str, tuple[str, str]] = {
+    "RSI Oversold": (
+        "RSI dropped below 30, indicating the stock is oversold relative to recent price action.",
+        "Potential benefit: mean reversion bounce as selling pressure exhausts itself.",
+    ),
+    "RSI Overbought": (
+        "RSI exceeded 70, indicating the stock is overbought relative to recent price action.",
+        "Potential benefit: locking in gains before a likely pullback to equilibrium.",
+    ),
+    "Golden Cross": (
+        "The 50-day SMA crossed above the 200-day SMA, signaling a long-term bullish trend shift.",
+        "Potential benefit: early positioning in a confirmed uptrend backed by moving average alignment.",
+    ),
+    "Death Cross": (
+        "The 50-day SMA crossed below the 200-day SMA, signaling a long-term bearish trend shift.",
+        "Potential benefit: reducing exposure ahead of a potential prolonged downtrend.",
+    ),
+    "MACD Bull": (
+        "MACD histogram turned positive — upward momentum is building over the signal line.",
+        "Potential benefit: capturing momentum early before broader market recognition.",
+    ),
+    "MACD Bear": (
+        "MACD histogram turned negative — downward momentum is building below the signal line.",
+        "Potential benefit: exiting before momentum-driven selling accelerates.",
+    ),
+    "Below Lower BB": (
+        "Price dropped below the lower Bollinger Band — a statistically extreme deviation from the mean.",
+        "Potential benefit: buying into an oversold condition with high probability of reversion toward the band midpoint.",
+    ),
+    "Above Upper BB": (
+        "Price exceeded the upper Bollinger Band — a statistically extreme deviation from the mean.",
+        "Potential benefit: selling into stretched conditions before volatility contracts back toward the mean.",
+    ),
+}
+
+_RISK_LABELS: dict[int, str] = {
+    1: "most conservative",
+    2: "conservative",
+    3: "conservative",
+    4: "moderately conservative",
+    5: "balanced",
+    6: "moderately aggressive",
+    7: "aggressive",
+    8: "aggressive",
+    9: "very aggressive",
+    10: "most aggressive",
+}
+
+# Trade size multiplier per risk level: 50% at 1, 100% at 5, 200% at 10
+_RISK_SIZE_MULTIPLIER: dict[int, float] = {
+    1: 0.50, 2: 0.65, 3: 0.80, 4: 0.90, 5: 1.00,
+    6: 1.20, 7: 1.40, 8: 1.60, 9: 1.80, 10: 2.00,
+}
+
+
+def _build_reasoning(
+    source: str,
+    source_ref: str,
+    side: str,
+    risk_level: int,
+    recommendation: Optional[str],
+    eval_reasons: list[str],
+) -> str:
+    """Compose a plain-English explanation of why this trade was taken."""
+    lines: list[str] = []
+
+    # --- Why was this action taken? ---
+    if source == "signal":
+        why, benefit = _SIGNAL_COPY.get(
+            source_ref,
+            (f"Signal '{source_ref}' triggered a {side} condition.", ""),
+        )
+        lines.append(why)
+        if benefit:
+            lines.append(benefit)
+
+    elif source == "alert":
+        # source_ref format: "price_below=150.0" or "rsi_above=65"
+        try:
+            condition, raw_threshold = source_ref.split("=", 1)
+            threshold = float(raw_threshold)
+            cond_map = {
+                "price_below": f"Price dropped below your alert threshold of ${threshold:,.2f}.",
+                "price_above": f"Price rose above your alert threshold of ${threshold:,.2f}.",
+                "rsi_below": f"RSI dropped below your alert threshold of {threshold:.0f}.",
+                "rsi_above": f"RSI rose above your alert threshold of {threshold:.0f}.",
+            }
+            lines.append(cond_map.get(condition, f"Alert condition '{condition}' met at threshold {threshold}."))
+        except (ValueError, AttributeError):
+            lines.append(f"Alert '{source_ref}' triggered a {side} condition.")
+        action_copy = {
+            "buy": "Potential benefit: entering a position at a price level you flagged as a buying opportunity.",
+            "sell": "Potential benefit: exiting at a price level you flagged as a take-profit or stop target.",
+        }
+        lines.append(action_copy.get(side, ""))
+
+    elif source == "filer":
+        lines.append(
+            f"Mirroring a disclosed {side} transaction from tracked filer '{source_ref}'."
+        )
+        lines.append(
+            "Potential benefit: aligning with a significant market participant's disclosed position change."
+        )
+
+    else:
+        lines.append(f"Source '{source}' triggered a {side} on '{source_ref}'.")
+
+    # --- Evaluator summary ---
+    if recommendation and recommendation != "proceed":
+        reasons_str = "; ".join(eval_reasons) if eval_reasons else "see evaluator"
+        lines.append(
+            f"Evaluator flagged '{recommendation}': {reasons_str}. "
+            "Trade executed per current risk settings."
+        )
+    elif recommendation == "proceed":
+        lines.append("Evaluator cleared: no tax or wash-sale concerns.")
+
+    # --- Risk level context ---
+    label = _RISK_LABELS.get(risk_level, "balanced")
+    multiplier = _RISK_SIZE_MULTIPLIER.get(risk_level, 1.0)
+    pct = int(multiplier * 100)
+    if risk_level <= 3:
+        lines.append(
+            f"Risk level {risk_level} ({label}) — trade size at {pct}% of default; "
+            "evaluator approval required before executing."
+        )
+    elif risk_level >= 7:
+        lines.append(
+            f"Risk level {risk_level} ({label}) — trade size at {pct}% of default; "
+            "evaluator bypassed to maximize execution speed."
+        )
+    else:
+        lines.append(f"Risk level {risk_level} ({label}) — trade size at {pct}% of default.")
+
+    return " ".join(line for line in lines if line)
 
 
 async def maybe_auto_trade(
@@ -64,7 +202,17 @@ async def maybe_auto_trade(
         logger.info("Auto-trade daily cap reached for %s", symbol)
         return
 
-    qty = await _compute_qty(symbol, amount_low, amount_high, db)
+    # Read risk level
+    risk_level = 5
+    async with db.execute(
+        "SELECT value FROM system_settings WHERE key = 'risk_level'"
+    ) as cur:
+        risk_row = await cur.fetchone()
+    if risk_row:
+        try:
+            risk_level = max(1, min(10, int(float(risk_row["value"]))))
+        except (ValueError, TypeError):
+            pass
 
     # Read tax settings for evaluator
     short_term_rate, long_term_rate, long_term_days = 0.37, 0.20, 365
@@ -83,27 +231,53 @@ async def maybe_auto_trade(
             except (ValueError, TypeError):
                 pass
 
-    # Pre-flight evaluation (soft gate — logs recommendation but always executes)
     recommendation: Optional[str] = None
-    try:
-        eval_result = await evaluate_trade(
-            symbol, side, qty,
-            short_term_rate=short_term_rate,
-            long_term_rate=long_term_rate,
-            long_term_days=long_term_days,
-        )
-        recommendation = eval_result.recommendation
-        if recommendation != "proceed":
-            logger.info(
-                "Auto-trade pre-flight: %s %s — evaluator says '%s': %s",
-                side,
-                symbol,
-                recommendation,
-                "; ".join(eval_result.reasons),
-            )
-    except Exception:
-        logger.warning("Auto-trade: evaluator failed for %s, proceeding anyway", symbol)
+    eval_reasons: list[str] = []
 
+    # Risk 7–10: skip evaluator entirely (aggressive — maximize execution speed)
+    if risk_level <= 6:
+        try:
+            eval_result = await evaluate_trade(
+                symbol, side, "1",  # qty placeholder — evaluator cares about symbol/side/holding
+                short_term_rate=short_term_rate,
+                long_term_rate=long_term_rate,
+                long_term_days=long_term_days,
+            )
+            recommendation = eval_result.recommendation
+            eval_reasons = eval_result.reasons
+            if recommendation != "proceed":
+                logger.info(
+                    "Auto-trade pre-flight: %s %s — evaluator says '%s': %s",
+                    side, symbol, recommendation, "; ".join(eval_reasons),
+                )
+                # Risk 1–3: hard gate — skip trade if evaluator is not happy
+                if risk_level <= 3:
+                    logger.info(
+                        "Auto-trade blocked by conservative risk level %d for %s", risk_level, symbol
+                    )
+                    return
+        except Exception:
+            logger.warning("Auto-trade: evaluator failed for %s, proceeding anyway", symbol)
+
+    qty = await _compute_qty(symbol, amount_low, amount_high, db, risk_level)
+
+    reasoning = _build_reasoning(source, source_ref, side, risk_level, recommendation, eval_reasons)
+
+    # Phase 1: write a pending record BEFORE calling Alpaca.
+    # If the process crashes after the Alpaca call but before the DB write we'd
+    # lose the record entirely — the order exists in Alpaca but not locally,
+    # causing it to show as "manual" in the UI.  Writing first guarantees there
+    # is always a row, even if the status never advances past "pending".
+    async with db.execute(
+        "INSERT INTO auto_trade_log "
+        "(symbol, side, qty, source, source_ref, order_id, status, error, recommendation, reasoning) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (symbol, side, qty, source, source_ref, None, "pending", None, recommendation, reasoning),
+    ) as cur:
+        log_id = cur.lastrowid
+    await db.commit()
+
+    # Phase 2: submit to Alpaca, then update the row with the result.
     order_id: Optional[str] = None
     status = "submitted"
     error: Optional[str] = None
@@ -124,10 +298,8 @@ async def maybe_auto_trade(
         logger.error("Auto-trade failed: %s %s — %s", side, symbol, error)
 
     await db.execute(
-        "INSERT INTO auto_trade_log "
-        "(symbol, side, qty, source, source_ref, order_id, status, error, recommendation) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (symbol, side, qty, source, source_ref, order_id, status, error, recommendation),
+        "UPDATE auto_trade_log SET order_id = ?, status = ?, error = ? WHERE id = ?",
+        (order_id, status, error, log_id),
     )
     await db.commit()
 
@@ -137,8 +309,11 @@ async def _compute_qty(
     amount_low: Optional[float],
     amount_high: Optional[float],
     db: aiosqlite.Connection,
+    risk_level: int = 5,
 ) -> str:
+    multiplier = _RISK_SIZE_MULTIPLIER.get(risk_level, 1.0)
     trade_usd: Optional[float] = None
+
     if amount_low is None:
         async with db.execute(
             "SELECT value FROM system_settings WHERE key = 'default_trade_usd'"
@@ -164,10 +339,11 @@ async def _compute_qty(
         )
         if price and price > 0:
             if amount_low is None:
-                usd = trade_usd if trade_usd is not None else 500.0
+                usd = (trade_usd if trade_usd is not None else 500.0) * multiplier
                 return str(max(1, round(usd / price)))
             midpoint = (amount_low + amount_high) / 2 if amount_high else amount_low * 2
-            return str(max(1, round(midpoint / price)))
+            adjusted = midpoint * multiplier
+            return str(max(1, round(adjusted / price)))
     except Exception:
         logger.warning("Auto-trade: could not fetch price for %s qty estimate, defaulting to 1", symbol)
 

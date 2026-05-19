@@ -1,9 +1,11 @@
+import { useState } from 'react'
 import { Order } from '../types'
 import { fmtMoney } from '../lib/format'
 
 interface Props {
   orders: Order[]
   autoOrderIds?: Set<string>
+  onMarkAuto?: (orderId: string) => Promise<void>
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -16,7 +18,18 @@ const STATUS_COLOR: Record<string, string> = {
   done_for_day: 'var(--ink-soft)',
 }
 
-export default function OrdersTable({ orders, autoOrderIds }: Props) {
+export default function OrdersTable({ orders, autoOrderIds, onMarkAuto }: Props) {
+  const [marking, setMarking] = useState<Set<string>>(new Set())
+
+  async function handleMarkAuto(orderId: string) {
+    if (!onMarkAuto) return
+    setMarking((prev) => new Set(prev).add(orderId))
+    try {
+      await onMarkAuto(orderId)
+    } finally {
+      setMarking((prev) => { const next = new Set(prev); next.delete(orderId); return next })
+    }
+  }
   return (
     <section style={{ marginTop: 40 }}>
       <div
@@ -223,15 +236,38 @@ export default function OrdersTable({ orders, autoOrderIds }: Props) {
                           AUTO
                         </span>
                       ) : (
-                        <span
-                          style={{
-                            fontFamily: 'JetBrains Mono, monospace',
-                            fontSize: 9,
-                            letterSpacing: 1,
-                            color: 'var(--ink-mute)',
-                          }}
-                        >
-                          manual
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span
+                            style={{
+                              fontFamily: 'JetBrains Mono, monospace',
+                              fontSize: 9,
+                              letterSpacing: 1,
+                              color: 'var(--ink-mute)',
+                            }}
+                          >
+                            manual
+                          </span>
+                          {onMarkAuto && (
+                            <button
+                              onClick={() => handleMarkAuto(o.id)}
+                              disabled={marking.has(o.id)}
+                              title="Mark this order as an auto-trade"
+                              style={{
+                                background: 'none',
+                                border: '1px solid var(--line)',
+                                color: 'var(--ink-mute)',
+                                fontFamily: 'JetBrains Mono, monospace',
+                                fontSize: 8,
+                                letterSpacing: '0.8px',
+                                textTransform: 'uppercase',
+                                padding: '1px 5px',
+                                cursor: 'pointer',
+                                opacity: marking.has(o.id) ? 0.4 : 1,
+                              }}
+                            >
+                              {marking.has(o.id) ? '…' : '→ auto'}
+                            </button>
+                          )}
                         </span>
                       )}
                     </td>,

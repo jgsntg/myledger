@@ -180,6 +180,7 @@ export interface AppSettings {
   tax_long_term_rate: number
   tax_long_term_days: number
   insights_extra_symbols: string
+  risk_level: number
 }
 
 export interface InsightEntry {
@@ -263,7 +264,9 @@ export interface AutoTradeEntry {
   source: string
   source_ref: string
   order_id: string | null
-  status: 'submitted' | 'failed'
+  status: 'pending' | 'submitted' | 'failed'
   error: string | null
+  recommendation: string | null
+  reasoning: string | null
   created_at: string
 }

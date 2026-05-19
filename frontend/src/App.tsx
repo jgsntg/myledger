@@ -175,6 +175,11 @@ export default function App() {
     }
   }, [])
 
+  async function handleMarkAuto(orderId: string) {
+    await api.backfillAutoTrade(orderId)
+    await refreshAutoTrades()
+  }
+
   async function toggleTradingMode() {
     if (appSettings.alpaca_env === 'live') return
     const next = appSettings.trading_mode === 'auto' ? 'manual' : 'auto'
@@ -316,6 +321,7 @@ export default function App() {
             orders={orders}
             autoOrderIds={autoOrderIds}
             onTrade={(sym, side, qty) => openTrade(sym, side, qty)}
+            onMarkAuto={handleMarkAuto}
           />
         )}
         {activeTab === 'filers' && (

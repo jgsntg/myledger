@@ -6,6 +6,7 @@ import aiosqlite
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.alpaca import trading_get
 from app.auth import require_token
 from app.config import settings as app_settings
 from app.database import get_db
@@ -20,6 +21,7 @@ class SettingsPatch(BaseModel):
     tax_long_term_rate: Optional[float] = None
     tax_long_term_days: Optional[int] = None
     insights_extra_symbols: Optional[str] = None
+    risk_level: Optional[int] = None
 
 
 async def _read_settings(db: aiosqlite.Connection) -> dict:
@@ -32,6 +34,7 @@ async def _read_settings(db: aiosqlite.Connection) -> dict:
     data.setdefault("tax_long_term_rate", "0.20")
     data.setdefault("tax_long_term_days", "365")
     data.setdefault("insights_extra_symbols", "")
+    data.setdefault("risk_level", "5")
     for key in ("default_trade_usd", "tax_short_term_rate", "tax_long_term_rate"):
         try:
             data[key] = float(data[key])
@@ -41,6 +44,10 @@ async def _read_settings(db: aiosqlite.Connection) -> dict:
         data["tax_long_term_days"] = int(float(data["tax_long_term_days"]))
     except (ValueError, TypeError):
         pass
+    try:
+        data["risk_level"] = max(1, min(10, int(float(data["risk_level"]))))
+    except (ValueError, TypeError):
+        data["risk_level"] = 5
     data["alpaca_env"] = app_settings.alpaca_env
     return data
 
@@ -105,11 +112,72 @@ async def update_settings(
             (body.insights_extra_symbols,),
         )
 
+    if body.risk_level is not None:
+        level = max(1, min(10, body.risk_level))
+        await db.execute(
+            "INSERT OR REPLACE INTO system_settings (key, value) VALUES ('risk_level', ?)",
+            (str(level),),
+        )
+
     await db.commit()
 
     result = await _read_settings(db)
     await db.close()
     return result
+
+
+class BackfillRequest(BaseModel):
+    order_id: str
+
+
+@router.post("/auto-trades/backfill")
+async def backfill_auto_trade(
+    body: BackfillRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    """Retroactively mark an Alpaca order as an auto-trade.
+
+    Looks up the order from Alpaca, inserts a record into auto_trade_log so the
+    order shows as AUTO in the UI.  Used to correct entries that were submitted
+    by the auto-trader but not logged due to a mid-flight process restart.
+    """
+    # Guard: don't double-insert
+    async with db.execute(
+        "SELECT id FROM auto_trade_log WHERE order_id = ?", (body.order_id,)
+    ) as cur:
+        existing = await cur.fetchone()
+    if existing:
+        await db.close()
+        raise HTTPException(status_code=409, detail="order already exists in auto_trade_log")
+
+    try:
+        order = await trading_get(f"/v2/orders/{body.order_id}")
+    except Exception as exc:
+        await db.close()
+        raise HTTPException(status_code=502, detail=f"Alpaca order lookup failed: {exc}")
+
+    symbol = order.get("symbol", "")
+    side = order.get("side", "")
+    qty = order.get("qty") or order.get("filled_qty") or "1"
+    alpaca_status = order.get("status", "filled")
+    status = "submitted" if alpaca_status not in ("canceled", "rejected", "expired") else "failed"
+
+    await db.execute(
+        "INSERT INTO auto_trade_log "
+        "(symbol, side, qty, source, source_ref, order_id, status, error, recommendation, reasoning) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            symbol, side, qty,
+            "signal", "retroactive",
+            body.order_id, status,
+            None, None,
+            "Retroactively marked as auto-trade — order was submitted by the auto-trader "
+            "but not logged due to a process restart before the DB write completed.",
+        ),
+    )
+    await db.commit()
+    await db.close()
+    return {"ok": True, "order_id": body.order_id, "symbol": symbol, "side": side}
 
 
 @router.get("/auto-trades")
@@ -118,7 +186,8 @@ async def list_auto_trades(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> list[dict]:
     async with db.execute(
-        "SELECT id, symbol, side, qty, source, source_ref, order_id, status, error, created_at "
+        "SELECT id, symbol, side, qty, source, source_ref, order_id, status, error, "
+        "recommendation, reasoning, created_at "
         "FROM auto_trade_log ORDER BY created_at DESC LIMIT ?",
         (limit,),
     ) as cur:

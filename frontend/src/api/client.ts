@@ -99,6 +99,11 @@ export const api = {
     request<AppSettings>('/api/settings', { method: 'PATCH', body: JSON.stringify(body) }),
   getAutoTrades: (limit = 50) =>
     request<AutoTradeEntry[]>(`/api/auto-trades?limit=${limit}`),
+  backfillAutoTrade: (orderId: string) =>
+    request<{ ok: boolean; order_id: string; symbol: string; side: string }>(
+      '/api/auto-trades/backfill',
+      { method: 'POST', body: JSON.stringify({ order_id: orderId }) },
+    ),
 
   getInsightsTopPerformers: (refresh = false) =>
     request<TopPerformers>(`/api/insights/top-performers${refresh ? '?refresh=true' : ''}`),

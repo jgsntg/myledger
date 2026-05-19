@@ -10,13 +10,14 @@ interface Props {
   orders: Order[]
   autoOrderIds: Set<string>
   onTrade: (symbol: string, presetSide: 'buy' | 'sell', presetQty: string) => void
+  onMarkAuto?: (orderId: string) => Promise<void>
 }
 
 function toTitleCase(s: string) {
   return s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())
 }
 
-export default function PositionsTab({ positions, orders, autoOrderIds, onTrade }: Props) {
+export default function PositionsTab({ positions, orders, autoOrderIds, onTrade, onMarkAuto }: Props) {
   const [sectorMap, setSectorMap] = useState<Record<string, string>>({})
 
   useEffect(() => {
@@ -92,7 +93,7 @@ export default function PositionsTab({ positions, orders, autoOrderIds, onTrade 
       )}
       <PositionsTable positions={positions} sectorMap={sectorMap} onTrade={onTrade} />
       <AiNarratives positions={positions} sectorMap={sectorMap} />
-      <OrdersTable orders={orders} autoOrderIds={autoOrderIds} />
+      <OrdersTable orders={orders} autoOrderIds={autoOrderIds} onMarkAuto={onMarkAuto} />
     </div>
   )
 }
