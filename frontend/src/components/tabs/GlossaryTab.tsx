@@ -1,6 +1,6 @@
 import { useState, type CSSProperties } from 'react'
 
-type Badge = 'buy' | 'sell' | 'info'
+type Badge = 'buy' | 'sell' | 'info' | 'warn'
 
 interface Term {
   term: string
@@ -182,10 +182,22 @@ const SECTIONS: Section[] = [
           'Selling a security at a loss and repurchasing the same (or substantially identical) security within 30 days before or after the sale. The IRS disallows the loss deduction. The evaluator flags this risk if a prior purchase is detected within the window.',
       },
       {
-        term: 'Evaluator Recommendation',
-        badge: 'info',
+        term: 'Evaluator: Proceed',
+        badge: 'buy',
         description:
-          'The trade evaluator returns one of three verdicts: Proceed (green) — no major concerns; Caution (amber) — one or more risk factors noted; Hold (red) — significant tax or wash-sale risk. The auto-trader logs the verdict but always executes regardless.',
+          'The trade evaluator found no major concerns. No tax flags, no wash-sale risk, and no unusual position size issues. The auto-trader executes without any logged caveat.',
+      },
+      {
+        term: 'Evaluator: Caution',
+        badge: 'warn',
+        description:
+          'The evaluator flagged one or more risk factors but the trade still went through. Triggers when: selling a short-term gain (held < 365d), selling at a loss with wash-sale exposure, buying within 30 days of a prior sale, no open position found on a sell, or selling more shares than held.',
+      },
+      {
+        term: 'Evaluator: Hold',
+        badge: 'sell',
+        description:
+          'The evaluator recommends waiting before selling. This fires when you are within 30 days of the long-term capital gains threshold — crossing it would lower the tax rate from 37% to 20%, potentially saving a meaningful amount. The auto-trader logs this but still executes if risk level is 4 or higher.',
       },
     ],
   },
@@ -207,12 +219,18 @@ const BADGE_STYLES: Record<Badge, CSSProperties> = {
     color: 'var(--ink-mute)',
     border: '1px solid var(--line)',
   },
+  warn: {
+    background: 'rgba(251, 191, 36, 0.10)',
+    color: 'var(--amber, #fbbf24)',
+    border: '1px solid rgba(251, 191, 36, 0.35)',
+  },
 }
 
 const BADGE_LABELS: Record<Badge, string> = {
   buy: 'Buy Signal',
   sell: 'Sell Signal',
   info: 'Concept',
+  warn: 'Caution',
 }
 
 export default function GlossaryTab() {

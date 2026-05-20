@@ -157,7 +157,7 @@ export default function OrdersTable({ orders, autoOrderIds, autoTrades, onMarkAu
               const statusColor = STATUS_COLOR[o.status] ?? 'var(--ink-soft)'
               const isAuto = autoOrderIds?.has(o.id) ?? false
               const tradeEntry = tradeByOrderId.get(o.id)
-              const hasReasoning = isAuto && !!tradeEntry?.reasoning
+              const hasReasoning = isAuto && tradeEntry !== undefined
               const isExpanded = expanded.has(o.id)
 
               return (
@@ -336,7 +336,7 @@ export default function OrdersTable({ orders, autoOrderIds, autoTrades, onMarkAu
                     </td>,
                   ]}
                 </tr>
-                {isExpanded && tradeEntry?.reasoning && (
+                {isExpanded && tradeEntry && (
                   <tr key={`${o.id}-reasoning`}>
                     <td
                       colSpan={9}
@@ -364,7 +364,7 @@ export default function OrdersTable({ orders, autoOrderIds, autoTrades, onMarkAu
                         lineHeight: 1.7,
                         maxWidth: 720,
                       }}>
-                        {tradeEntry.reasoning}
+                        {tradeEntry.reasoning ?? `Auto-trade triggered by ${tradeEntry.source} · ${tradeEntry.source_ref}`}
                       </div>
                       {tradeEntry.recommendation && tradeEntry.recommendation !== 'proceed' && (
                         <div style={{
