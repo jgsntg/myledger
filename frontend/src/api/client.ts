@@ -132,6 +132,16 @@ export const api = {
       body: JSON.stringify({ positions, sector_map }),
     }),
 
+  getPortfolioHistory: (period: string, timeframe: string) =>
+    request<{
+      timestamp: number[]
+      equity: (number | null)[]
+      profit_loss: (number | null)[]
+      profit_loss_pct: (number | null)[]
+      base_value: number
+      timeframe: string
+    }>(`/api/portfolio-history?period=${period}&timeframe=${timeframe}`),
+
   getFilers: () => request<TrackedFiler[]>('/api/filers'),
   createFiler: (body: { name: string; filer_type: string; source_id: string }) =>
     request<TrackedFiler>('/api/filers', {

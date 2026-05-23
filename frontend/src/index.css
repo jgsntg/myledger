@@ -59,6 +59,12 @@ html, body {
 ::-webkit-scrollbar-thumb { background: var(--line); }
 ::-webkit-scrollbar-thumb:hover { background: var(--ink-mute); }
 
+/* Refresh spin */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Detail panel expand transition */
 .detail-panel {
   overflow: hidden;

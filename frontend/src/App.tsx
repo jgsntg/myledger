@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from './api/client'
 import AppHeader, { TABS, type TabId } from './components/AppHeader'
-import PortfolioStrip from './components/PortfolioStrip'
+import PortfolioChart from './components/PortfolioChart'
+import TaxImpactStrip from './components/TaxImpactStrip'
 import SettingsDrawer from './components/SettingsDrawer'
 import TradeModal from './components/TradeModal'
 import WatchlistTab from './components/tabs/WatchlistTab'
@@ -301,7 +302,8 @@ export default function App() {
           padding: '28px 32px 80px',
         }}
       >
-        <PortfolioStrip account={account} positions={positions} />
+        <PortfolioChart account={account} positions={positions} />
+        <TaxImpactStrip account={account} positions={positions} settings={appSettings} />
 
         {activeTab === 'watchlist' && (
           <WatchlistTab

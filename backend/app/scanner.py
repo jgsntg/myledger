@@ -17,7 +17,7 @@ import logging
 from datetime import datetime, timezone
 
 from app.alpaca import data_get, trading_get
-from app.auto_trader import maybe_auto_trade
+from app.auto_trader import maybe_auto_trade, reconcile_pending_trades
 from app.config import settings
 from app.database import get_db
 from app.indicators import compute_signals
@@ -52,6 +52,8 @@ async def signal_scanner_loop() -> None:
 async def _run_signal_scan() -> None:
     db = await get_db()
     try:
+        await reconcile_pending_trades(db)
+
         async with db.execute("SELECT symbol FROM watchlist") as cur:
             rows = await cur.fetchall()
         symbols = [r["symbol"] for r in rows]

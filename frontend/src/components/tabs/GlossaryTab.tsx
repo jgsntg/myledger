@@ -140,6 +140,24 @@ const SECTIONS: Section[] = [
           'The profit or loss on an open position if it were closed right now at the current market price. It fluctuates throughout the day and is not locked in until you sell.',
       },
       {
+        term: 'Realized P&L',
+        badge: 'info',
+        description:
+          'The actual profit or loss captured when a position is closed — i.e., after you sell. Unlike unrealized P&L, this is locked in and becomes a taxable event. Ledger shows realized P&L in the orders history once a sell fills.',
+      },
+      {
+        term: 'P&L % (Return)',
+        badge: 'info',
+        description:
+          'The percentage gain or loss relative to your cost basis. Calculated as (current value − cost basis) ÷ cost basis × 100. A position worth $11,000 on a $10,000 cost basis has a P&L % of +10%. Useful for comparing performance across positions of different sizes.',
+      },
+      {
+        term: 'Day\'s P&L',
+        badge: 'info',
+        description:
+          'How much your total portfolio equity changed since yesterday\'s market close. Shown in the portfolio header. Positive means your holdings gained value today; negative means they lost. This is always short-term for tax purposes since it reflects a single trading day\'s movement.',
+      },
+      {
         term: 'Auto-Trading',
         badge: 'info',
         description:

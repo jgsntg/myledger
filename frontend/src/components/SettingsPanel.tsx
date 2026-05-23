@@ -21,8 +21,12 @@ const RISK_LABELS: Record<number, { short: string; description: string; color: s
 
 export default function SettingsPanel({ settings, onSave }: Props) {
   const [tradeUsd, setTradeUsd] = useState(String(settings.default_trade_usd))
-  const [shortRate, setShortRate] = useState(String(Math.round(settings.tax_short_term_rate * 100)))
-  const [longRate, setLongRate] = useState(String(Math.round(settings.tax_long_term_rate * 100)))
+  const [shortRate, setShortRate] = useState(
+    String(Math.round(settings.tax_short_term_rate * 1000) / 10),
+  )
+  const [longRate, setLongRate] = useState(
+    String(Math.round(settings.tax_long_term_rate * 1000) / 10),
+  )
   const [longDays, setLongDays] = useState(String(settings.tax_long_term_days))
   const [riskLevel, setRiskLevel] = useState(settings.risk_level ?? 5)
   const [allowShorts, setAllowShorts] = useState(settings.allow_short_selling ?? false)
@@ -226,12 +230,12 @@ export default function SettingsPanel({ settings, onSave }: Props) {
               <span style={hintStyle}>Short-term</span>
               <input
                 type="number"
-                min="1"
-                max="99"
-                step="1"
+                min="0.1"
+                max="99.9"
+                step="0.1"
                 value={shortRate}
                 onChange={(e) => setShortRate(e.target.value)}
-                style={{ ...inputStyle, width: 54 }}
+                style={{ ...inputStyle, width: 62 }}
               />
               <span style={prefixStyle}>%</span>
             </div>
@@ -239,12 +243,12 @@ export default function SettingsPanel({ settings, onSave }: Props) {
               <span style={hintStyle}>Long-term</span>
               <input
                 type="number"
-                min="1"
-                max="99"
-                step="1"
+                min="0.1"
+                max="99.9"
+                step="0.1"
                 value={longRate}
                 onChange={(e) => setLongRate(e.target.value)}
-                style={{ ...inputStyle, width: 54 }}
+                style={{ ...inputStyle, width: 62 }}
               />
               <span style={prefixStyle}>%</span>
             </div>

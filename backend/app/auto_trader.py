@@ -11,7 +11,7 @@ Rules:
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
 import aiosqlite
@@ -375,3 +375,92 @@ async def _compute_qty(
         logger.warning("Auto-trade: could not fetch price for %s qty estimate, defaulting to 1", symbol)
 
     return "1"
+
+
+async def reconcile_pending_trades(db: aiosqlite.Connection) -> None:
+    """Patch auto_trade_log records left as 'pending' after a process crash.
+
+    When the server crashes between submitting the Alpaca order and writing the
+    order_id back to the DB, the record stays with order_id=NULL and
+    status='pending'.  The frontend filters those out, so the order appears as
+    manual even though the auto-trader placed it.
+
+    This function fetches recent Alpaca orders and matches them against pending
+    records by symbol + side + timestamp proximity (within 2 hours).  Stale
+    records that can't be matched after 24 hours are marked failed.
+    """
+    async with db.execute(
+        "SELECT id, symbol, side, created_at FROM auto_trade_log "
+        "WHERE order_id IS NULL AND status = 'pending'"
+    ) as cur:
+        pending = await cur.fetchall()
+
+    if not pending:
+        return
+
+    logger.info("Reconciling %d pending auto_trade_log record(s) with Alpaca orders", len(pending))
+
+    try:
+        orders = await trading_get("/v2/orders", status="all", limit=100, direction="desc")
+    except Exception:
+        logger.warning("Reconciliation: could not fetch orders from Alpaca, will retry next cycle")
+        return
+
+    if not isinstance(orders, list):
+        return
+
+    now = datetime.now(timezone.utc)
+    updated = 0
+
+    for record in pending:
+        rec_id = record["id"]
+        symbol = record["symbol"]
+        side = record["side"]
+
+        try:
+            created_at = datetime.fromisoformat(record["created_at"])
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=timezone.utc)
+        except (ValueError, TypeError):
+            continue
+
+        age_hours = (now - created_at).total_seconds() / 3600
+
+        matched_order_id: Optional[str] = None
+        for order in orders:
+            if order.get("symbol", "").upper() != symbol.upper():
+                continue
+            if order.get("side", "") != side:
+                continue
+            order_time_str = order.get("created_at", "")
+            try:
+                order_time = datetime.fromisoformat(order_time_str.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                continue
+            if abs((order_time - created_at).total_seconds()) <= 7200:
+                matched_order_id = order.get("id")
+                break
+
+        if matched_order_id:
+            await db.execute(
+                "UPDATE auto_trade_log SET order_id = ?, status = 'submitted' WHERE id = ?",
+                (matched_order_id, rec_id),
+            )
+            logger.info(
+                "Reconciled pending #%d → Alpaca order %s (%s %s)",
+                rec_id, matched_order_id[:8], side, symbol,
+            )
+            updated += 1
+        elif age_hours > 24:
+            await db.execute(
+                "UPDATE auto_trade_log SET status = 'failed', error = ? WHERE id = ?",
+                (
+                    "Unresolved after 24h — process likely crashed before Alpaca confirmed the order",
+                    rec_id,
+                ),
+            )
+            logger.info("Marked stale pending #%d as failed (%s %s)", rec_id, side, symbol)
+            updated += 1
+
+    if updated:
+        await db.commit()

@@ -115,7 +115,7 @@ export default function SettingsDrawer({ open, onClose, settings, onSave }: Prop
           }}
         >
           <SettingsPanel
-            key={`${settings.default_trade_usd}-${settings.tax_short_term_rate}-${settings.tax_long_term_rate}-${settings.tax_long_term_days}`}
+            key={`${settings.default_trade_usd}-${settings.tax_short_term_rate}-${settings.tax_long_term_rate}-${settings.tax_long_term_days}-${settings.risk_level}-${settings.allow_short_selling}`}
             settings={settings}
             onSave={onSave}
           />
