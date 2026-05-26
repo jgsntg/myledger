@@ -53,6 +53,8 @@ export default function App() {
     tax_long_term_rate: 0.20,
     tax_long_term_days: 365,
     insights_extra_symbols: '',
+    risk_level: 5,
+    allow_short_selling: false,
   })
   const [showSettings, setShowSettings] = useState(false)
   const [autoTrades, setAutoTrades] = useState<AutoTradeEntry[]>([])
