@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-22 (Portfolio chart, tax exposure strip, auto-trade reconciliation, settings fixes).
+Last updated: 2026-05-26 (Production deploy wiring: CORS env var, API base URL, render.yaml, vercel.json; dead component cleanup; default tax rates corrected).
 
 ## Current State
 
@@ -25,6 +25,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading and SQLi
 | 9 | Auto-trade reasoning, Risk Dial, short-selling guard, two-phase commit | ✅ Done |
 | 10 | AUTO order reasoning fix + evaluator verdict glossary cards | ✅ Done |
 | 11 | Portfolio chart, tax exposure strip, reconciliation fix, settings UX | ✅ Done |
+| 12 | Production deploy wiring (CORS env var, API base URL, render.yaml, vercel.json) | ✅ Done |
 
 ---
 
@@ -67,7 +68,14 @@ ANTHROPIC_API_KEY=<filled in — powers AI Narratives>
 **`frontend/.env.local`:**
 ```env
 VITE_API_TOKEN=<same value as backend API_TOKEN>
+VITE_API_BASE_URL=          # empty locally — Vite proxy handles /api/*
+                             # in Vercel dashboard: https://ledger-backend.onrender.com
 ```
+
+**Production-only env vars (set in host dashboards, not in .env files):**
+- Render: `ALLOWED_ORIGINS=https://your-app.vercel.app` (add after Vercel URL is known)
+- Render: `DATABASE_URL=/data/ledger.db` (persistent disk)
+- Vercel: `VITE_API_BASE_URL=https://your-backend.onrender.com`
 
 Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
@@ -298,8 +306,8 @@ Glossary is now **31 terms** across 4 sections.
 |-----|---------|------|-------------|
 | `trading_mode` | `manual` | string | `auto` or `manual` |
 | `default_trade_usd` | `500` | float | Base trade size for signal/alert auto-trades |
-| `tax_short_term_rate` | `0.37` | float | Short-term cap gains rate (0–1). For user's situation: 0.388 |
-| `tax_long_term_rate` | `0.20` | float | Long-term cap gains rate (0–1). For user's situation: 0.238 |
+| `tax_short_term_rate` | `0.388` | float | Short-term cap gains rate (0–1). MFJ/$600K/FL: 35% bracket + 3.8% NIIT |
+| `tax_long_term_rate` | `0.238` | float | Long-term cap gains rate (0–1). MFJ/$600K/FL: 20% LTCG + 3.8% NIIT |
 | `tax_long_term_days` | `365` | int | Days threshold for long-term treatment |
 | `insights_extra_symbols` | `` | string | Comma-separated extra symbols for Market Insights |
 | `risk_level` | `5` | int | 1–10 risk dial |
@@ -342,7 +350,7 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 | `Header.tsx` | Top row (logo, status dot, clock, AUTO/MANUAL pill, settings). |
 | `PortfolioChart.tsx` | **New (Phase 11).** Portfolio equity area chart + period tabs + 4-cell stats strip. Replaces `PortfolioStrip`. Default period: `1M`. |
 | `TaxImpactStrip.tsx` | **New (Phase 11).** After-tax P&L estimates. Reads `settings.tax_*_rate`. Amber banner if rates don't match recommended (38.8/23.8). |
-| `PortfolioStrip.tsx` | **Dead code** — superseded by `PortfolioChart`. Safe to delete. |
+| ~~`PortfolioStrip.tsx`~~ | **Deleted (2026-05-26).** Was superseded by `PortfolioChart`. |
 | `SettingsDrawer.tsx` | Right-side slide-in drawer wrapping `SettingsPanel`. Key now includes `risk_level` + `allow_short_selling` to force remount on settings load. |
 | `tabs/WatchlistTab.tsx` | 2-col grid. Passes `symbolNames` to `Watchlist`. |
 | `tabs/PositionsTab.tsx` | Sector strip → `PositionsTable` + `AiNarratives` + `OrdersTable`. Receives `autoTrades` from App, passes to `OrdersTable`. |
@@ -366,7 +374,7 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 | `TradeModal.tsx` | Order entry modal with `TradeEvaluation`. |
 | `TrackedFilersSection.tsx` | Filer tracking UI. |
 | `SettingsPanel.tsx` | Risk Dial (1–10 slider), Allow Short Selling toggle, trade size, tax rates (now `step=0.1`, 1-decimal display). |
-| `PortfolioSummary.tsx` | **Dead code** — predates tabbed refactor. Safe to delete. |
+| ~~`PortfolioSummary.tsx`~~ | **Deleted (2026-05-26).** Predated tabbed refactor. |
 
 ---
 
@@ -390,12 +398,46 @@ Rate limit guard: `asyncio.Semaphore(3)`. Polygon free tier = 5 req/min.
 - **Backend** → Render Starter ($7/mo) or Railway Hobby ($5/mo)
 - **Database** → SQLite on persistent volume
 
-**What needs to change before deploy:**
-1. Add `VITE_API_BASE_URL` env var to frontend (currently hardcoded to `localhost:8000`)
-2. Add CORS origin for the Vercel frontend URL in FastAPI
-3. Write a `render.yaml` or `railway.json` build config
-4. Ensure `DATABASE_URL` points to persistent volume path on Render/Railway
-5. Copy all secrets from `backend/.env` into the host's env var dashboard
+**Code changes done (Phase 12):** CORS env var, API base URL in client, render.yaml, vercel.json, TypeScript build fix.
+
+**Remaining steps (secrets/config only — no more code needed):**
+1. Deploy backend to Render: connect repo, select `backend/` as root, Render reads `render.yaml` automatically. Fill in all `sync: false` secrets in the Render dashboard.
+2. Note the Render backend URL (e.g. `https://ledger-backend.onrender.com`).
+3. Deploy frontend to Vercel: connect repo, set root to `frontend/`, Vercel reads `vercel.json`. Set two env vars in Vercel dashboard:
+   - `VITE_API_TOKEN` = same value as backend `API_TOKEN`
+   - `VITE_API_BASE_URL` = the Render backend URL from step 2
+4. Note the Vercel URL (e.g. `https://ledger.vercel.app`).
+5. Set `ALLOWED_ORIGINS=https://ledger.vercel.app` in the Render backend env dashboard, then redeploy backend.
+
+---
+
+## What Changed This Session (2026-05-26)
+
+### Phase 12 — Production Deploy Wiring
+
+1. **`ALLOWED_ORIGINS` env var** (`config.py`) — CORS origins now read from `ALLOWED_ORIGINS` env var (comma-separated). Default: `http://localhost:5173`. On Render, set to the Vercel frontend URL.
+2. **Dynamic CORS in `main.py`** — `allow_origins` now parsed from `settings.allowed_origins.split(",")`. Local dev unchanged; production just needs the env var.
+3. **`VITE_API_BASE_URL` in `client.ts`** — `const BASE = import.meta.env.VITE_API_BASE_URL ?? ''` prepended to every `fetch` call. Empty in local dev (Vite proxy still handles `/api/*`). Set to the Render backend URL in Vercel's env dashboard.
+4. **`backend/render.yaml`** — Render deployment config: Docker runtime, Starter plan, 1 GB persistent disk mounted at `/data`, `DATABASE_URL=/data/ledger.db`, all secrets listed as `sync: false` (fill in dashboard).
+5. **`frontend/vercel.json`** — Vercel build config: `buildCommand`, `outputDirectory: dist`, `framework: vite`.
+6. **`tsconfig.node.json`** — Added `"DOM"` to `lib` to fix pre-existing TypeScript error (`URL` and `import.meta.url` not recognized). Build now passes cleanly.
+
+### Cleanup
+
+7. **Deleted dead components** — `PortfolioStrip.tsx` and `PortfolioSummary.tsx` removed.
+8. **Default tax rates corrected** — `database.py` defaults changed from 0.37/0.20 → **0.388/0.238**.
+
+### Files Modified
+
+- `backend/app/config.py` — added `allowed_origins` field
+- `backend/app/main.py` — CORS reads from `settings.allowed_origins`; added `from app.config import settings`
+- `backend/render.yaml` — **new file**
+- `frontend/src/api/client.ts` — `BASE` constant + `fetch(BASE + path, ...)`
+- `frontend/vercel.json` — **new file**
+- `frontend/tsconfig.node.json` — `"lib"` now includes `"DOM"`
+- `backend/app/database.py` — default `tax_short_term_rate` 0.37 → 0.388; `tax_long_term_rate` 0.20 → 0.238
+- `frontend/src/components/PortfolioStrip.tsx` — **deleted**
+- `frontend/src/components/PortfolioSummary.tsx` — **deleted**
 
 ---
 
@@ -438,15 +480,14 @@ Rate limit guard: `asyncio.Semaphore(3)`. Polygon free tier = 5 req/min.
 
 ### Immediate — High Value
 
-1. **Update tax rates in Settings** — Change ST to `38.8%` and LT to `23.8%` in the Settings drawer. The amber banner in the Tax Exposure strip will dismiss once rates match. (User's actual rates: 35% bracket + 3.8% NIIT = 38.8% ST; 20% LTCG + 3.8% NIIT = 23.8% LT.)
-2. **QUIVER_API_TOKEN** — Add real token to `backend/.env`, restart, test filer Sync for `nancy-pelosi`. Still the only blocker for the full Phase 2b copy-trading flow.
+1. **Deploy to production** — All code is ready. Follow the 5-step sequence in the Deployment Plan section above (secrets only, no more code needed).
+2. **QUIVER_API_TOKEN** — Add real token to `backend/.env` locally and to Render env dashboard. Still the only blocker for the full Phase 2b copy-trading flow.
+3. **Update tax rates in existing DB** — The `INSERT OR IGNORE` defaults now use 38.8%/23.8% for fresh databases. If your local `ledger.db` still has 37%/20%, run: `UPDATE system_settings SET value='0.388' WHERE key='tax_short_term_rate'; UPDATE system_settings SET value='0.238' WHERE key='tax_long_term_rate';` or update via Settings drawer.
 
 ### Next in Feature Build Sequence
 
-3. **Delete dead components** — `PortfolioStrip.tsx` and `PortfolioSummary.tsx` are both unreferenced. Safe to delete.
-4. **Realized P&L tracking** — Currently can only show unrealized gains (open positions). Closed trades show in orders but there's no running tally of realized gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would require tracking entry price at buy time.
-5. **Deploy backend to Render/Railway** — wire up env vars, CORS, build config.
-6. **Deploy frontend to Vercel** — set `VITE_API_BASE_URL` to the Railway/Render backend URL.
+4. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would require tracking entry price at buy time.
+5. **Bundle splitting** — Production build is 582 KB / 170 KB gzipped (one chunk). Vite warns above 500 KB. Low priority — app is single-user, but worth splitting recharts into a lazy chunk.
 
 ### Low Priority / Future
 

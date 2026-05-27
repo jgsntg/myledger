@@ -12,6 +12,7 @@ class Settings(BaseSettings):
 
     api_token: str = "change-me"
     database_url: str = "ledger.db"
+    allowed_origins: str = "http://localhost:5173"
     quiver_api_token: str = ""
     massive_api_key: str = ""
     anthropic_api_key: str = ""

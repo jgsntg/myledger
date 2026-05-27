@@ -19,9 +19,10 @@ import type {
 } from '../types'
 
 const TOKEN = import.meta.env.VITE_API_TOKEN ?? ''
+const BASE = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/$/, '')
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
+  const res = await fetch(BASE + path, {
     ...init,
     headers: {
       'Content-Type': 'application/json',

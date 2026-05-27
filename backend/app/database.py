@@ -135,8 +135,8 @@ async def init_db() -> None:
         for _key, _val in [
             ("trading_mode", "manual"),
             ("default_trade_usd", "500"),
-            ("tax_short_term_rate", "0.37"),
-            ("tax_long_term_rate", "0.20"),
+            ("tax_short_term_rate", "0.388"),
+            ("tax_long_term_rate", "0.238"),
             ("tax_long_term_days", "365"),
             ("insights_extra_symbols", ""),
             ("risk_level", "5"),
