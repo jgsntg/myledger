@@ -1,6 +1,7 @@
 """Snapshots, bars, and clock — all read-only market data endpoints."""
 
 import asyncio
+import logging
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +12,8 @@ from app.alpaca import data_get, trading_get
 from app.auth import require_token
 from app.config import settings
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
 
@@ -133,19 +136,24 @@ async def _fetch_bars_with_cache(
         fresh_bars = data.get("bars") or []
 
         if fresh_bars:
-            await db.executemany(
-                "INSERT INTO bar_cache "
-                "(symbol, bar_date, open, high, low, close, volume) VALUES ($1,$2,$3,$4,$5,$6,$7) "
-                "ON CONFLICT (symbol, bar_date) DO UPDATE SET "
-                "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, "
-                "close = EXCLUDED.close, volume = EXCLUDED.volume, "
-                "fetched_at = CURRENT_TIMESTAMP",
-                [
-                    (symbol, b["t"][:10], b["o"], b["h"], b["l"], b["c"], b["v"])
-                    for b in fresh_bars
-                    if b["t"][:10] not in cached_dates
-                ],
-            )
+            rows_to_insert = [
+                (symbol, b["t"][:10], float(b["o"]), float(b["h"]), float(b["l"]), float(b["c"]), int(b["v"]))
+                for b in fresh_bars
+                if b["t"][:10] not in cached_dates
+            ]
+            if rows_to_insert:
+                try:
+                    await db.executemany(
+                        "INSERT INTO bar_cache "
+                        "(symbol, bar_date, open, high, low, close, volume) VALUES ($1,$2,$3,$4,$5,$6,$7) "
+                        "ON CONFLICT (symbol, bar_date) DO UPDATE SET "
+                        "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, "
+                        "close = EXCLUDED.close, volume = EXCLUDED.volume, "
+                        "fetched_at = CURRENT_TIMESTAMP",
+                        rows_to_insert,
+                    )
+                except Exception as exc:
+                    logger.error("bar_cache write failed for %s: %s", symbol, exc)
 
     all_bars = cached_bars + [
         {"t": b["t"], "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"], "v": b["v"]}

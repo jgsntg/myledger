@@ -1,3 +1,5 @@
+import logging
+
 import asyncpg
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -6,6 +8,7 @@ from app.database import get_db
 from app.indicators import compute_signals
 from app.routers.market import _fetch_bars_with_cache
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
 
 
@@ -15,9 +18,14 @@ async def get_indicators(
     db: asyncpg.Connection = Depends(get_db),
 ) -> dict:
     symbol = symbol.upper()
-    bars = await _fetch_bars_with_cache(symbol, days=365, db=db)
+    try:
+        bars = await _fetch_bars_with_cache(symbol, days=365, db=db)
+    except Exception as exc:
+        logger.error("indicators/%s: _fetch_bars_with_cache failed: %s", symbol, exc)
+        raise
 
     if not bars:
+        logger.warning("indicators/%s: no bar data returned", symbol)
         raise HTTPException(status_code=404, detail=f"No bar data available for {symbol}")
 
     closes = [b["c"] for b in bars]
