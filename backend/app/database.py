@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import AsyncGenerator
@@ -178,7 +179,16 @@ async def init_db() -> None:
             "DATABASE_URL is the fallback default — data will NOT persist. "
             "Set DATABASE_URL in the Render environment dashboard."
         )
-    _pool = await asyncpg.create_pool(db_url, min_size=1, max_size=10)
+    for attempt in range(5):
+        try:
+            _pool = await asyncpg.create_pool(db_url, min_size=1, max_size=10)
+            break
+        except Exception as exc:
+            if attempt == 4:
+                raise
+            wait = 2 ** attempt
+            logger.warning("DB connection failed (attempt %d/5): %s — retrying in %ds", attempt + 1, exc, wait)
+            await asyncio.sleep(wait)
     async with _pool.acquire() as conn:
         async with conn.transaction():
             for stmt in _DDL_STATEMENTS:
