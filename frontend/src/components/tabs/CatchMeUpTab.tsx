@@ -243,6 +243,13 @@ export default function CatchMeUpTab({ symbols, orders }: Props) {
   const [watchlistNews, setWatchlistNews] = useState<WatchlistArticle[]>([])
   const [loadingMarket, setLoadingMarket] = useState(true)
   const [loadingWatchlist, setLoadingWatchlist] = useState(true)
+  const [isDesktop, setIsDesktop] = useState(() => window.innerWidth >= 768)
+
+  useEffect(() => {
+    const handler = () => setIsDesktop(window.innerWidth >= 768)
+    window.addEventListener('resize', handler)
+    return () => window.removeEventListener('resize', handler)
+  }, [])
 
   useEffect(() => {
     api
@@ -294,82 +301,110 @@ export default function CatchMeUpTab({ symbols, orders }: Props) {
   const todayOrders = orders.filter((o) => new Date(o.submitted_at).toDateString() === todayStr)
   const yesterdayOrders = orders.filter((o) => new Date(o.submitted_at).toDateString() === yesterdayStr)
 
+  const marketSection = (
+    <section>
+      <SectionHeader title="Top Market News" sub="Market-wide · top 5" />
+      {loadingMarket ? (
+        <LoadingSkeleton />
+      ) : marketNews.length === 0 ? (
+        <EmptyState text="No market news available" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {marketNews.map((a) => (
+            <NewsCard key={a.id} article={a} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+
+  const watchlistSection = (
+    <section>
+      <SectionHeader
+        title="Your Watchlist in the News"
+        sub={symbols.length ? `${symbols.length} symbol${symbols.length > 1 ? 's' : ''} · top 5` : 'no symbols'}
+      />
+      {loadingWatchlist ? (
+        <LoadingSkeleton />
+      ) : watchlistNews.length === 0 ? (
+        <EmptyState
+          text={
+            symbols.length === 0
+              ? 'Add symbols to your watchlist to see news here'
+              : 'No recent news for your watchlist'
+          }
+        />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {watchlistNews.map((a) => (
+            <NewsCard key={a.id} article={a} tag={a.forSymbol} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+
+  const todaySection = (
+    <section>
+      <SectionHeader
+        title="Today's Orders"
+        sub={today.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+      />
+      {todayOrders.length === 0 ? (
+        <EmptyState text="No orders today yet" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {todayOrders.map((o) => (
+            <OrderRow key={o.id} order={o} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+
+  const yesterdaySection = (
+    <section>
+      <SectionHeader
+        title="Yesterday's Orders"
+        sub={yesterday.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+      />
+      {yesterdayOrders.length === 0 ? (
+        <EmptyState text="No orders from yesterday" />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          {yesterdayOrders.map((o) => (
+            <OrderRow key={o.id} order={o} />
+          ))}
+        </div>
+      )}
+    </section>
+  )
+
+  if (isDesktop) {
+    return (
+      <div
+        role="tabpanel"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: '1fr 1fr',
+          gap: 32,
+          marginTop: 32,
+        }}
+      >
+        {marketSection}
+        {watchlistSection}
+        {todaySection}
+        {yesterdaySection}
+      </div>
+    )
+  }
+
   return (
     <div role="tabpanel" style={{ display: 'flex', flexDirection: 'column', gap: 48, marginTop: 32 }}>
-      {/* Market News */}
-      <section>
-        <SectionHeader title="Top Market News" sub="Market-wide · top 5" />
-        {loadingMarket ? (
-          <LoadingSkeleton />
-        ) : marketNews.length === 0 ? (
-          <EmptyState text="No market news available" />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {marketNews.map((a) => (
-              <NewsCard key={a.id} article={a} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Watchlist News */}
-      <section>
-        <SectionHeader
-          title="Your Watchlist in the News"
-          sub={symbols.length ? `${symbols.length} symbol${symbols.length > 1 ? 's' : ''} · top 5` : 'no symbols'}
-        />
-        {loadingWatchlist ? (
-          <LoadingSkeleton />
-        ) : watchlistNews.length === 0 ? (
-          <EmptyState
-            text={
-              symbols.length === 0
-                ? 'Add symbols to your watchlist to see news here'
-                : 'No recent news for your watchlist'
-            }
-          />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {watchlistNews.map((a) => (
-              <NewsCard key={a.id} article={a} tag={a.forSymbol} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Today's Orders */}
-      <section>
-        <SectionHeader
-          title="Today's Orders"
-          sub={today.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-        />
-        {todayOrders.length === 0 ? (
-          <EmptyState text="No orders today yet" />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {todayOrders.map((o) => (
-              <OrderRow key={o.id} order={o} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* Yesterday's Orders */}
-      <section>
-        <SectionHeader
-          title="Yesterday's Orders"
-          sub={yesterday.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-        />
-        {yesterdayOrders.length === 0 ? (
-          <EmptyState text="No orders from yesterday" />
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {yesterdayOrders.map((o) => (
-              <OrderRow key={o.id} order={o} />
-            ))}
-          </div>
-        )}
-      </section>
+      {marketSection}
+      {watchlistSection}
+      {todaySection}
+      {yesterdaySection}
     </div>
   )
 }
