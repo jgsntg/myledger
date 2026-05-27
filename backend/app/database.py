@@ -1,10 +1,19 @@
 from __future__ import annotations
 
+import logging
+import re
 from typing import AsyncGenerator
 
 import asyncpg
 
 from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+def _masked_url(url: str) -> str:
+    """Return the DB URL with the password replaced by ****."""
+    return re.sub(r"://([^:]+):[^@]+@", r"://\1:****@", url)
 
 _pool: asyncpg.Pool | None = None
 
@@ -161,7 +170,15 @@ _DEFAULT_SETTINGS = [
 
 async def init_db() -> None:
     global _pool
-    _pool = await asyncpg.create_pool(settings.database_url, min_size=2, max_size=10)
+    db_url = settings.database_url
+    masked = _masked_url(db_url)
+    logger.info("Connecting to database: %s", masked)
+    if db_url == "postgresql://localhost/ledger":
+        logger.warning(
+            "DATABASE_URL is the fallback default — data will NOT persist. "
+            "Set DATABASE_URL in the Render environment dashboard."
+        )
+    _pool = await asyncpg.create_pool(db_url, min_size=1, max_size=10)
     async with _pool.acquire() as conn:
         async with conn.transaction():
             for stmt in _DDL_STATEMENTS:
@@ -172,6 +189,12 @@ async def init_db() -> None:
                     "ON CONFLICT (key) DO NOTHING",
                     key, val,
                 )
+        wl_count = await conn.fetchval("SELECT COUNT(*) FROM watchlist")
+        st_count = await conn.fetchval("SELECT COUNT(*) FROM system_settings")
+    logger.info(
+        "Database ready — %s: watchlist=%d rows, settings=%d rows",
+        masked, wl_count, st_count,
+    )
 
 
 async def close_db() -> None:

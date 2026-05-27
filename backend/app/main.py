@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import alpaca, massive, quiver, symbols as symbols_mod
 from app.config import settings
-from app.database import init_db, close_db
+from app.database import init_db, close_db, _masked_url
 from app.routers import (
     account,
     ai as ai_router,
@@ -55,6 +55,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/api/health")
+async def health() -> dict:
+    from app.database import get_pool
+    try:
+        async with get_pool().acquire() as conn:
+            wl = await conn.fetchval("SELECT COUNT(*) FROM watchlist")
+            st = await conn.fetchval("SELECT COUNT(*) FROM system_settings")
+        return {
+            "status": "ok",
+            "database": _masked_url(settings.database_url),
+            "watchlist_rows": wl,
+            "settings_rows": st,
+        }
+    except Exception as exc:
+        return {"status": "error", "error": str(exc)}
+
 
 for router in [
     account.router,
