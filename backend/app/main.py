@@ -19,7 +19,7 @@ from app.routers import (
     massive as massive_router,
     orders,
     positions,
-    settings,
+    settings as settings_router,
     signals,
     watchlist,
 )
@@ -65,7 +65,7 @@ for router in [
     signals.router,
     alerts.router,
     filers.router,
-    settings.router,
+    settings_router.router,
     evaluate.router,
     insights.router,
     massive_router.router,
