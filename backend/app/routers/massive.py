@@ -20,6 +20,16 @@ async def get_ticker_details(symbol: str):
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.get("/news")
+async def get_market_news(limit: int = 10):
+    """Market-wide news feed, no ticker filter (max 50)."""
+    limit = min(limit, 50)
+    try:
+        return await massive.fetch_market_news(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e))
+
+
 @router.get("/news/{symbol}")
 async def get_news(symbol: str, limit: int = 10):
     """Recent news articles for a symbol (max 50)."""

@@ -106,6 +106,24 @@ async def fetch_news(symbol: str, limit: int = 10) -> list[dict[str, Any]]:
         raise RuntimeError(f"Massive API error: {e}") from e
 
 
+async def fetch_market_news(limit: int = 10) -> list[dict[str, Any]]:
+    """Fetch recent market-wide news (no ticker filter).
+
+    Polygon endpoint: GET /v2/reference/news (no ticker param)
+    """
+    client = _require_client()
+    try:
+        r = await client.get(
+            "/v2/reference/news",
+            params={"limit": limit, "sort": "published_utc", "order": "desc"},
+        )
+        r.raise_for_status()
+        return r.json().get("results", [])
+    except Exception as e:
+        logger.exception("Massive market news fetch failed")
+        raise RuntimeError(f"Massive API error: {e}") from e
+
+
 async def fetch_financials(symbol: str) -> list[dict[str, Any]]:
     """Fetch last 4 quarterly financial statements for a symbol.
 

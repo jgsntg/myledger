@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-26 (Production deploy wiring: CORS env var, API base URL, render.yaml, vercel.json; dead component cleanup; default tax rates corrected).
+Last updated: 2026-05-26 — Catch Me Up tab (market news, watchlist news, today's + yesterday's orders); TaxImpactStrip scoped to Positions tab only; PortfolioChart hidden on Catch Me Up tab.
 
 ## Current State
 
@@ -26,6 +26,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading and SQLi
 | 10 | AUTO order reasoning fix + evaluator verdict glossary cards | ✅ Done |
 | 11 | Portfolio chart, tax exposure strip, reconciliation fix, settings UX | ✅ Done |
 | 12 | Production deploy wiring (CORS env var, API base URL, render.yaml, vercel.json) | ✅ Done |
+| 13 | Catch Me Up tab — market news, watchlist news, today's/yesterday's orders | ✅ Done |
 
 ---
 
@@ -134,6 +135,52 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
 ---
 
+## Phase 13 — Catch Me Up Tab (2026-05-26)
+
+### What it is
+
+A dedicated "Daily Briefing" tab inserted **before** Watchlist in the tab bar. Replaces the cluttered default view with a clean morning-read layout. The portfolio chart and tax strip are **hidden** on this tab.
+
+### Three sections
+
+**1. Top Market News**
+- Fetches `GET /api/massive/news/SPY?limit=10` (SPY as market proxy) and shows the top 5 articles.
+- Each card: publisher name, time-ago, title, truncated description (160 chars), external link.
+- Hover highlights border to `var(--accent)`.
+
+**2. Your Watchlist in the News**
+- Fetches `GET /api/massive/news/{sym}?limit=5` for every symbol in the watchlist, in parallel.
+- Merges all results, deduplicates by article `id`, sorts by `published_utc` descending, takes top 5.
+- Each card has a ticker tag badge (e.g. `AAPL`) identifying which watchlist symbol surfaced the article.
+- Empty state varies: "Add symbols to your watchlist…" vs "No recent news for your watchlist".
+
+**3. Today's Orders + Yesterday's Orders**
+- Client-side filters on `orders` prop: `submitted_at.toDateString() === today` / `yesterday`.
+- Both use the shared `OrderRow` component: time, symbol, side (green/red), shares, fill price, status.
+- Empty state: "No orders today yet" / "No orders from yesterday".
+
+### Key implementation details
+
+- **No new backend endpoints** — uses existing `GET /api/massive/news/{symbol}` and `orders` prop passed from App.
+- **Visibility guards in App.tsx:**
+  - `PortfolioChart` hidden when `activeTab === 'catch-up'`
+  - `TaxImpactStrip` **only** shown when `activeTab === 'positions'` (scoped this session — was previously all non-catch-up tabs)
+- **Tab id:** `'catch-up'` (kebab-case, matches TypeScript `TabId` union auto-derived from `TABS`).
+- **Loading states:** `LoadingSkeleton` (3 grey boxes) for both news sections while fetching; orders filter synchronously from already-loaded `orders` prop.
+
+### Component: `CatchMeUpTab.tsx`
+
+Props: `{ symbols: string[], orders: Order[] }`
+
+Internal sub-components (all file-local):
+- `NewsCard` — article link card with tag prop for ticker badge
+- `SectionHeader` — title + mono sub-label with bottom border
+- `EmptyState` — centered italic placeholder
+- `LoadingSkeleton` — 3 grey boxes
+- `OrderRow` — single order row used by both Today's and Yesterday's sections
+
+---
+
 ## Phase 9 — Auto-Trade Intelligence
 
 ### Auto-Trade Reasoning
@@ -215,8 +262,6 @@ A `warn` badge type (amber, `#fbbf24`) was added to `GlossaryTab.tsx`.
 
 ### Portfolio Chart (`PortfolioChart.tsx`)
 
-Replaces `PortfolioStrip.tsx` as the top-of-page component (App.tsx renders `<PortfolioChart>` in its place; `PortfolioStrip.tsx` is now dead code, safe to delete).
-
 **Layout:**
 - Header row: "Your Portfolio" label + equity value + % change + timestamp + period tabs + refresh button
 - Area chart (recharts `AreaChart`, 180px height, gold `#d4a574` stroke + gradient fill)
@@ -234,69 +279,32 @@ Replaces `PortfolioStrip.tsx` as the top-of-page component (App.tsx renders `<Po
 
 **Backend endpoint:** `GET /api/portfolio-history?period=&timeframe=` in `account.py`. Proxies Alpaca's `GET /v2/account/portfolio/history` with `extended_hours=True`. Returns `{ timestamp: number[], equity: (number|null)[], profit_loss: (number|null)[], profit_loss_pct: (number|null)[], base_value: number, timeframe: string }`.
 
-**Dependencies:** `recharts` (npm, installed with `--legacy-peer-deps`), `react-is` (peer dep of recharts, also installed).
-
-**X-axis tick formatting:**
-- `1D`: `h:mm AM/PM`
-- `1W`: `Weekday Mon DD`
-- `1M / 1Y / All`: `Mon DD`
-
-**Tooltip:** `CustomTooltip` component, shows date/time + `fmtMoney(equity)`.
+**Dependencies:** `recharts` + `react-is` (peer dep), installed via `--legacy-peer-deps`.
 
 ### Tax Impact Strip (`TaxImpactStrip.tsx`)
 
-Shown below `PortfolioChart` on all tabs. Uses `AppSettings` rates for calculations.
-
-**User's tax situation (MFJ, ~$600K income, FL):**
-- Short-term rate: **38.8%** = 35% marginal bracket + 3.8% NIIT
-- Long-term rate: **23.8%** = 20% LTCG + 3.8% NIIT
-- Florida: no state income tax
-- NIIT ($250K MFJ threshold): applies — MAGI well above threshold
-- Child tax credit: fully phased out above $400K MFJ
+**Scoping (updated Phase 13):** Now rendered **only on the Positions tab**. Previously shown on all tabs except Catch Me Up.
 
 **What it shows (2-column layout):**
-- **Unrealized P&L** (sum of `position.unrealized_pl`): gross + after-tax at ST rate + after-tax at LT rate + "benefit of waiting" (LT minus ST)
-- **Day's P&L** (`equity - last_equity`): gross + after ST-rate tax + tax drag amount
-- **NIIT Exposure section**: 3.8% of unrealized gains + 3.8% of day's P&L, shown as separate line items
-- **Rate mismatch banner** (amber): shown if configured rates differ from `RECOMMENDED_ST=0.388` / `RECOMMENDED_LT=0.238` by more than 0.5%. Tells user what to set in Settings.
+- **Unrealized P&L**: gross + after-tax at ST rate + after-tax at LT rate + "benefit of waiting" (LT minus ST)
+- **Day's P&L**: gross + after ST-rate tax + tax drag amount
+- **NIIT Exposure section**: 3.8% of unrealized gains + 3.8% of day's P&L
+- **Rate mismatch banner** (amber): shown if configured rates differ from `RECOMMENDED_ST=0.388` / `RECOMMENDED_LT=0.238` by more than 0.5%
 
-**After-tax formula:** `gross_pl * (1 - rate)` — applies symmetrically to gains (taxes owed) and losses (tax savings from deduction).
+**User's tax rates (MFJ, ~$600K income, FL):**
+- Short-term: **38.8%** = 35% bracket + 3.8% NIIT
+- Long-term: **23.8%** = 20% LTCG + 3.8% NIIT
 
 **Props:** `{ account: AccountData | null, positions: Position[], settings: AppSettings }`
 
 ### Auto-Trade Reconciliation Bug Fix
 
-**Root cause:** When the server process crashes between submitting an Alpaca order (phase 2) and writing the `order_id` back to `auto_trade_log` (phase 3), the record stays as `status='pending', order_id=NULL`. The frontend's `autoOrderIds` set is built by `.filter(Boolean)` on order_ids, so `NULL` entries are excluded — the Alpaca order appeared as "manual" in the Orders table.
+`reconcile_pending_trades(db)` in `auto_trader.py`. Called at top of every `_run_signal_scan()`. Matches `order_id=NULL, status='pending'` records to Alpaca orders by symbol + side + ≤2h timestamp delta. Stale records (>24h) marked `failed`.
 
-**Fix:** `reconcile_pending_trades(db)` in `auto_trader.py`. Called at the top of every `_run_signal_scan()` cycle (every ~60s).
+### Settings Fixes
 
-**Algorithm:**
-1. Query `auto_trade_log WHERE order_id IS NULL AND status = 'pending'`
-2. If none, return immediately (cheap path — one SELECT)
-3. Fetch last 100 Alpaca orders (`GET /v2/orders?status=all&limit=100&direction=desc`)
-4. For each pending record: find an Alpaca order with matching symbol + side where `abs(order.created_at - record.created_at) <= 7200s` (2-hour window)
-5. If matched: `UPDATE auto_trade_log SET order_id=?, status='submitted'`
-6. If unmatched AND record is older than 24h: `UPDATE ... SET status='failed', error='Unresolved after 24h…'`
-7. `commit()` if any rows updated
-
-### Settings Fixes This Session
-
-**Risk level not persisting across page refresh:**
-- Root cause: `SettingsDrawer` keyed `SettingsPanel` on only 4 fields (`default_trade_usd`, `tax_short_term_rate`, `tax_long_term_rate`, `tax_long_term_days`). When the API returned real settings on boot, the key string didn't change, so `SettingsPanel` never remounted — `riskLevel` state stuck at the default `5`.
-- Fix: key now includes all 6 mutable fields: `…-${settings.risk_level}-${settings.allow_short_selling}`.
-
-**Tax rates rounding to integers:**
-- Root cause: `useState(String(Math.round(settings.tax_short_term_rate * 100)))` truncated decimals — 38.8% stored as 0.388 became `Math.round(38.8) = 39`.
-- Fix: `String(Math.round(settings.tax_short_term_rate * 1000) / 10)` — rounds to 1 decimal place. Inputs updated to `step="0.1"`, `max="99.9"`, `min="0.1"`, width widened to 62px.
-
-### Glossary Additions
-
-Three new terms added in the Trading Basics section (after "Unrealized P&L"):
-- **Realized P&L** — locked-in gain/loss after a position closes; taxable event
-- **P&L % (Return)** — `(current value − cost basis) / cost basis × 100`; normalizes across position sizes
-- **Day's P&L** — portfolio equity change since yesterday's close; always short-term for tax purposes
-
-Glossary is now **31 terms** across 4 sections.
+- **Risk level not persisting:** `SettingsDrawer` key now includes all 6 mutable fields (incl. `risk_level`, `allow_short_selling`) to force `SettingsPanel` remount on boot.
+- **Tax rates rounding:** init uses `Math.round(rate * 1000) / 10`; inputs `step="0.1"`, `max="99.9"`.
 
 ---
 
@@ -324,7 +332,7 @@ side           TEXT NOT NULL
 qty            TEXT NOT NULL
 source         TEXT NOT NULL        -- 'signal', 'alert', 'filer', 'retroactive'
 source_ref     TEXT NOT NULL        -- e.g. 'RSI Oversold', 'price_below=150'
-order_id       TEXT                 -- NULL until phase 2 of two-phase commit; reconciled by reconcile_pending_trades()
+order_id       TEXT                 -- NULL until phase 2 of two-phase commit
 status         TEXT NOT NULL        -- 'pending', 'submitted', 'failed'
 error          TEXT
 recommendation TEXT                 -- evaluator result: 'proceed', 'caution', 'hold'
@@ -338,22 +346,22 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 
 ### App shell
 
-- `src/App.tsx` — Bootstrap + periodic polls. Renders `PortfolioChart` + `TaxImpactStrip` above tab content. `autoTrades` state polled every 30s. `autoOrderIds` Set + `handleMarkAuto()` defined here. Passes `autoTrades` to `PositionsTab`.
-- `src/api/client.ts` — All typed API methods. Includes `backfillAutoTrade(orderId)`, `getPortfolioHistory(period, timeframe)`.
+- `src/App.tsx` — Bootstrap + periodic polls. `PortfolioChart` hidden on `catch-up` tab. `TaxImpactStrip` only on `positions` tab. `autoTrades` polled every 30s. `autoOrderIds` Set + `handleMarkAuto()` defined here.
+- `src/api/client.ts` — All typed API methods. `BASE` constant prepended to every fetch (empty locally, Render URL in prod).
 - `src/types/index.ts` — All types. `AutoTradeEntry` has `recommendation`, `reasoning`, `status`. `AppSettings` has `risk_level` and `allow_short_selling`.
 
-### Tabbed shell layout
+### Tab shell
 
 | File | Description |
 |------|-------------|
-| `AppHeader.tsx` | Sticky shell — tab bar + `Header`. |
+| `AppHeader.tsx` | Sticky shell — tab bar + `Header`. Tabs: **Catch Me Up** → Watchlist → Positions → Filers → Discover → Glossary. |
 | `Header.tsx` | Top row (logo, status dot, clock, AUTO/MANUAL pill, settings). |
-| `PortfolioChart.tsx` | **New (Phase 11).** Portfolio equity area chart + period tabs + 4-cell stats strip. Replaces `PortfolioStrip`. Default period: `1M`. |
-| `TaxImpactStrip.tsx` | **New (Phase 11).** After-tax P&L estimates. Reads `settings.tax_*_rate`. Amber banner if rates don't match recommended (38.8/23.8). |
-| ~~`PortfolioStrip.tsx`~~ | **Deleted (2026-05-26).** Was superseded by `PortfolioChart`. |
-| `SettingsDrawer.tsx` | Right-side slide-in drawer wrapping `SettingsPanel`. Key now includes `risk_level` + `allow_short_selling` to force remount on settings load. |
+| `PortfolioChart.tsx` | Portfolio equity area chart + period tabs + 4-cell stats strip. Hidden on Catch Me Up tab. Default period: `1M`. |
+| `TaxImpactStrip.tsx` | After-tax P&L estimates. **Positions tab only.** Amber banner if rates differ from recommended (38.8/23.8). |
+| `SettingsDrawer.tsx` | Right-side slide-in drawer wrapping `SettingsPanel`. Key includes all 6 mutable fields to force remount on boot. |
+| `tabs/CatchMeUpTab.tsx` | **New (Phase 13).** Daily briefing: market news (SPY proxy, top 5), watchlist news (per-symbol, deduped, top 5), today's orders, yesterday's orders. No PortfolioChart or TaxImpactStrip. |
 | `tabs/WatchlistTab.tsx` | 2-col grid. Passes `symbolNames` to `Watchlist`. |
-| `tabs/PositionsTab.tsx` | Sector strip → `PositionsTable` + `AiNarratives` + `OrdersTable`. Receives `autoTrades` from App, passes to `OrdersTable`. |
+| `tabs/PositionsTab.tsx` | Sector strip → `PositionsTable` + `AiNarratives` + `OrdersTable`. Receives `autoTrades` from App. |
 | `tabs/FilersTab.tsx` | `TrackedFilersSection` + `AutoTradeLog`. |
 | `tabs/DiscoverTab.tsx` | `MarketInsights` + `EarningsCalendar`. |
 | `tabs/GlossaryTab.tsx` | 31 terms in 4 sections. `warn` badge type (amber). |
@@ -369,12 +377,11 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 | `Watchlist.tsx` | Passes `companyName` to each `StockRow`. |
 | `PositionsTable.tsx` | Grouped by sector. QTY shows `N [LONG\|SHORT]` badge. Close button uses BUY for shorts. Hover → lazy company name. |
 | `AiNarratives.tsx` | Two manual-trigger cards: Portfolio Briefing + Risk Analysis. |
-| `OrdersTable.tsx` | Recent orders. AUTO rows show ▼ expand for reasoning (or source/source_ref fallback). `→ auto` backfill button on manual rows. Hover → lazy company name. |
-| `AutoTradeLog.tsx` | Auto-trade history. Click ▼ to expand reasoning. `pending` status shown as "? pending". |
+| `OrdersTable.tsx` | Recent orders. AUTO rows show ▼ expand for reasoning (or source/source_ref fallback). `→ auto` backfill button on manual rows. |
+| `AutoTradeLog.tsx` | Auto-trade history. Click ▼ to expand reasoning. `pending` shown as "? pending". |
 | `TradeModal.tsx` | Order entry modal with `TradeEvaluation`. |
 | `TrackedFilersSection.tsx` | Filer tracking UI. |
-| `SettingsPanel.tsx` | Risk Dial (1–10 slider), Allow Short Selling toggle, trade size, tax rates (now `step=0.1`, 1-decimal display). |
-| ~~`PortfolioSummary.tsx`~~ | **Deleted (2026-05-26).** Predated tabbed refactor. |
+| `SettingsPanel.tsx` | Risk Dial (1–10 slider), Allow Short Selling toggle, trade size, tax rates (`step=0.1`, 1-decimal display). |
 
 ---
 
@@ -411,68 +418,42 @@ Rate limit guard: `asyncio.Semaphore(3)`. Polygon free tier = 5 req/min.
 
 ---
 
-## What Changed This Session (2026-05-26)
-
-### Phase 12 — Production Deploy Wiring
-
-1. **`ALLOWED_ORIGINS` env var** (`config.py`) — CORS origins now read from `ALLOWED_ORIGINS` env var (comma-separated). Default: `http://localhost:5173`. On Render, set to the Vercel frontend URL.
-2. **Dynamic CORS in `main.py`** — `allow_origins` now parsed from `settings.allowed_origins.split(",")`. Local dev unchanged; production just needs the env var.
-3. **`VITE_API_BASE_URL` in `client.ts`** — `const BASE = import.meta.env.VITE_API_BASE_URL ?? ''` prepended to every `fetch` call. Empty in local dev (Vite proxy still handles `/api/*`). Set to the Render backend URL in Vercel's env dashboard.
-4. **`backend/render.yaml`** — Render deployment config: Docker runtime, Starter plan, 1 GB persistent disk mounted at `/data`, `DATABASE_URL=/data/ledger.db`, all secrets listed as `sync: false` (fill in dashboard).
-5. **`frontend/vercel.json`** — Vercel build config: `buildCommand`, `outputDirectory: dist`, `framework: vite`.
-6. **`tsconfig.node.json`** — Added `"DOM"` to `lib` to fix pre-existing TypeScript error (`URL` and `import.meta.url` not recognized). Build now passes cleanly.
-
-### Cleanup
-
-7. **Deleted dead components** — `PortfolioStrip.tsx` and `PortfolioSummary.tsx` removed.
-8. **Default tax rates corrected** — `database.py` defaults changed from 0.37/0.20 → **0.388/0.238**.
-
-### Files Modified
-
-- `backend/app/config.py` — added `allowed_origins` field
-- `backend/app/main.py` — CORS reads from `settings.allowed_origins`; added `from app.config import settings`
-- `backend/render.yaml` — **new file**
-- `frontend/src/api/client.ts` — `BASE` constant + `fetch(BASE + path, ...)`
-- `frontend/vercel.json` — **new file**
-- `frontend/tsconfig.node.json` — `"lib"` now includes `"DOM"`
-- `backend/app/database.py` — default `tax_short_term_rate` 0.37 → 0.388; `tax_long_term_rate` 0.20 → 0.238
-- `frontend/src/components/PortfolioStrip.tsx` — **deleted**
-- `frontend/src/components/PortfolioSummary.tsx` — **deleted**
-
----
-
-## What Changed This Session (2026-05-22)
+## What Changed This Session (2026-05-26 — Phase 13)
 
 ### New Features
 
-1. **Portfolio equity chart** (`PortfolioChart.tsx`) — recharts `AreaChart` with 1D/1W/1M/1Y/All period toggle. Default `1M`. Gold area fill. Custom tooltip. Refresh button with spin animation. Replaces static `PortfolioStrip`.
-2. **Backend portfolio history endpoint** — `GET /api/portfolio-history?period=&timeframe=` proxies Alpaca's `/v2/account/portfolio/history`.
-3. **Tax Exposure strip** (`TaxImpactStrip.tsx`) — shows unrealized P&L and day's P&L with after-tax amounts at both ST and LT rates, NIIT breakdown, and amber banner when configured rates differ from recommended (38.8%/23.8% for user's MFJ/$600K/FL situation).
-4. **Glossary additions** — Realized P&L, P&L % (Return), Day's P&L. Now 31 terms.
-5. **Chart 1W period** — added between 1D and 1M, uses hourly bars (`timeframe=1H`).
-
-### Bug Fixes
-
-6. **Risk level not persisting** — `SettingsDrawer` key now includes `risk_level` and `allow_short_selling`, forcing `SettingsPanel` to remount when real settings load from API on boot.
-7. **Tax rates rounding to integers** — initializer changed from `Math.round(rate * 100)` to `Math.round(rate * 1000) / 10`. Inputs use `step="0.1"`, `max="99.9"`.
-8. **AUTO orders not marked after process crash** — `reconcile_pending_trades()` added to `auto_trader.py`. Runs at top of every signal scan. Matches `order_id=NULL, status='pending'` records to Alpaca orders by symbol + side + ≤2h timestamp delta. Stale records (>24h unresolved) marked `failed`.
+1. **Catch Me Up tab** (`CatchMeUpTab.tsx`) — new first tab ("Daily briefing"). Three sections: Top Market News (SPY proxy, top 5), Your Watchlist in the News (per-symbol fetch, deduped, top 5 with ticker tag), Today's Orders + Yesterday's Orders (client-side date filter from existing `orders` prop).
+2. **TaxImpactStrip scoped to Positions only** — previously shown on all tabs except Catch Me Up; now only renders when `activeTab === 'positions'`.
+3. **PortfolioChart hidden on Catch Me Up** — clean daily briefing view with no chart noise.
 
 ### Files Modified
 
-**Backend:**
-- `app/routers/account.py` — added `GET /api/portfolio-history`
-- `app/auto_trader.py` — added `reconcile_pending_trades()`, added `datetime/timezone` import
-- `app/scanner.py` — imports + calls `reconcile_pending_trades(db)` at top of `_run_signal_scan()`
-
 **Frontend:**
-- `src/App.tsx` — swapped `PortfolioStrip` → `PortfolioChart` + `TaxImpactStrip`; added imports
-- `src/api/client.ts` — added `getPortfolioHistory(period, timeframe)`
-- `src/components/PortfolioChart.tsx` — **new file**
-- `src/components/TaxImpactStrip.tsx` — **new file**
-- `src/components/SettingsDrawer.tsx` — key includes `risk_level` + `allow_short_selling`
-- `src/components/SettingsPanel.tsx` — tax rate init fixed (1 decimal); inputs `step=0.1`, `max=99.9`, `width=62px`
-- `src/components/tabs/GlossaryTab.tsx` — 3 new P&L terms
-- `frontend/package.json` — added `recharts`, `react-is` (peer dep)
+- `src/components/AppHeader.tsx` — added `{ id: 'catch-up', label: 'Catch Me Up', sub: 'Daily briefing' }` as first entry in `TABS`
+- `src/App.tsx` — `PortfolioChart` wrapped in `activeTab !== 'catch-up'` guard; `TaxImpactStrip` wrapped in `activeTab === 'positions'` guard; `CatchMeUpTab` import + render block added
+- `src/components/tabs/CatchMeUpTab.tsx` — **new file** (375 lines)
+
+---
+
+## What Changed In Prior Sessions
+
+### 2026-05-26 — Phase 12: Production Deploy Wiring
+
+1. `ALLOWED_ORIGINS` env var in `config.py`; CORS in `main.py` reads from it.
+2. `VITE_API_BASE_URL` in `client.ts` prepended to every fetch.
+3. `backend/render.yaml` — new Render deployment config.
+4. `frontend/vercel.json` — new Vercel build config.
+5. `frontend/tsconfig.node.json` — added `"DOM"` lib to fix TypeScript build.
+6. Deleted dead components `PortfolioStrip.tsx` and `PortfolioSummary.tsx`.
+7. Default tax rates in `database.py` corrected: 0.37/0.20 → 0.388/0.238.
+
+### 2026-05-22 — Phase 11: Portfolio Chart + Tax Strip
+
+1. Portfolio equity area chart with period tabs (recharts).
+2. Tax exposure strip with after-tax P&L and NIIT breakdown.
+3. `reconcile_pending_trades()` — crash-recovery for two-phase commit.
+4. Settings fixes: risk level persistence, tax rate decimal rounding.
+5. Glossary: 3 new P&L terms (now 31 total).
 
 ---
 
@@ -480,18 +461,19 @@ Rate limit guard: `asyncio.Semaphore(3)`. Polygon free tier = 5 req/min.
 
 ### Immediate — High Value
 
-1. **Deploy to production** — All code is ready. Follow the 5-step sequence in the Deployment Plan section above (secrets only, no more code needed).
+1. **Deploy to production** — All code is ready. Follow the 5-step sequence in the Deployment Plan section (secrets only, no more code needed).
 2. **QUIVER_API_TOKEN** — Add real token to `backend/.env` locally and to Render env dashboard. Still the only blocker for the full Phase 2b copy-trading flow.
-3. **Update tax rates in existing DB** — The `INSERT OR IGNORE` defaults now use 38.8%/23.8% for fresh databases. If your local `ledger.db` still has 37%/20%, run: `UPDATE system_settings SET value='0.388' WHERE key='tax_short_term_rate'; UPDATE system_settings SET value='0.238' WHERE key='tax_long_term_rate';` or update via Settings drawer.
+3. **Update tax rates in existing DB** — If local `ledger.db` still has 37%/20% from before Phase 11, run: `UPDATE system_settings SET value='0.388' WHERE key='tax_short_term_rate'; UPDATE system_settings SET value='0.238' WHERE key='tax_long_term_rate';` or update via Settings drawer.
 
 ### Next in Feature Build Sequence
 
-4. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would require tracking entry price at buy time.
-5. **Bundle splitting** — Production build is 582 KB / 170 KB gzipped (one chunk). Vite warns above 500 KB. Low priority — app is single-user, but worth splitting recharts into a lazy chunk.
+4. **Catch Me Up — general market news** — Currently uses SPY as a market proxy. Polygon's free tier has a `/v2/reference/news` endpoint (no symbol required) that returns market-wide news; wiring that up would give broader coverage. Would need a new backend route `GET /api/massive/news` (no symbol param).
+5. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Would require tracking entry price at buy time (Alpaca doesn't return cost basis on closed orders).
+6. **Bundle splitting** — Production build is ~582 KB / 170 KB gzipped (one chunk). Vite warns above 500 KB. Consider lazy-loading recharts.
 
 ### Low Priority / Future
 
-7. **AI Narrative enhancements** — Current narratives use positions data only. Could add Polygon news per symbol to the briefing.
+7. **AI Narrative enhancements** — Current narratives use positions data only. Could incorporate Polygon news per symbol.
 8. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
 9. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
 10. **Mobile / responsive** — Desktop-only. Below ~1100px the layout breaks.

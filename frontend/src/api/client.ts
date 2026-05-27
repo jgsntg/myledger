@@ -114,6 +114,8 @@ export const api = {
     request<Record<string, string>>(`/api/symbols/names?symbols=${symbols.join(',')}`),
   getTickerDetails: (symbol: string) =>
     request<TickerDetails>(`/api/massive/ticker/${symbol}`),
+  getMarketNews: (limit = 10) =>
+    request<NewsArticle[]>(`/api/massive/news?limit=${limit}`),
   getTickerNews: (symbol: string, limit = 10) =>
     request<NewsArticle[]>(`/api/massive/news/${symbol}?limit=${limit}`),
   getTickerFinancials: (symbol: string) =>

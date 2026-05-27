@@ -246,8 +246,8 @@ export default function CatchMeUpTab({ symbols, orders }: Props) {
 
   useEffect(() => {
     api
-      .getTickerNews('SPY', 10)
-      .then((articles) => setMarketNews(articles.slice(0, 5)))
+      .getMarketNews(5)
+      .then(setMarketNews)
       .catch(() => {})
       .finally(() => setLoadingMarket(false))
   }, [])
@@ -298,7 +298,7 @@ export default function CatchMeUpTab({ symbols, orders }: Props) {
     <div role="tabpanel" style={{ display: 'flex', flexDirection: 'column', gap: 48, marginTop: 32 }}>
       {/* Market News */}
       <section>
-        <SectionHeader title="Top Market News" sub="S&P 500 · top 5" />
+        <SectionHeader title="Top Market News" sub="Market-wide · top 5" />
         {loadingMarket ? (
           <LoadingSkeleton />
         ) : marketNews.length === 0 ? (
