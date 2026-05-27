@@ -391,10 +391,10 @@ export default function CatchMeUpTab({ symbols, orders }: Props) {
           marginTop: 32,
         }}
       >
-        {marketSection}
-        {watchlistSection}
         {todaySection}
         {yesterdaySection}
+        {marketSection}
+        {watchlistSection}
       </div>
     )
   }
