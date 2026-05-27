@@ -4,7 +4,7 @@ import asyncio
 import time
 from datetime import datetime, timedelta, timezone
 
-import aiosqlite
+import asyncpg
 from fastapi import APIRouter, Depends, Query
 
 from app.alpaca import data_get, trading_get
@@ -70,7 +70,7 @@ async def get_bars(
     symbol: str,
     timeframe: str = "1Day",
     days: int = 365,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict]:
     symbol = symbol.upper()
     now = time.monotonic()
@@ -78,7 +78,6 @@ async def get_bars(
     async with _bar_lock:
         cached = _bar_cache.get(symbol)
         if cached and now < cached[1]:
-            await db.close()
             return cached[0]
 
     bars = await _fetch_bars_with_cache(symbol, days, db, timeframe)
@@ -89,32 +88,28 @@ async def get_bars(
     async with _bar_lock:
         _bar_cache[symbol] = (bars, time.monotonic() + ttl)
 
-    await db.close()
     return bars
 
 
 async def _fetch_bars_with_cache(
-    symbol: str, days: int, db: aiosqlite.Connection, timeframe: str = "1Day"
+    symbol: str, days: int, db: asyncpg.Connection, timeframe: str = "1Day"
 ) -> list[dict]:
     end_dt = datetime.now(timezone.utc) - timedelta(minutes=16)
     start_dt = end_dt - timedelta(days=days)
 
-    # Pull what we already have in the DB
-    async with db.execute(
+    rows = await db.fetch(
         "SELECT bar_date, open, high, low, close, volume FROM bar_cache "
-        "WHERE symbol = ? AND bar_date >= ? ORDER BY bar_date ASC",
-        (symbol, start_dt.date().isoformat()),
-    ) as cur:
-        rows = await cur.fetchall()
+        "WHERE symbol = $1 AND bar_date >= $2 ORDER BY bar_date ASC",
+        symbol, start_dt.date(),
+    )
 
-    cached_dates = {row["bar_date"] for row in rows}
+    cached_dates = {str(row["bar_date"]) for row in rows}
     cached_bars = [
-        {"t": row["bar_date"], "o": row["open"], "h": row["high"],
+        {"t": str(row["bar_date"]), "o": row["open"], "h": row["high"],
          "l": row["low"], "c": row["close"], "v": row["volume"]}
         for row in rows
     ]
 
-    # Determine fetch range: from the day after our last cached bar
     if cached_dates:
         last_cached = max(cached_dates)
         fetch_start = (
@@ -132,23 +127,25 @@ async def _fetch_bars_with_cache(
             start=fetch_start.isoformat(),
             end=end_dt.isoformat(),
             limit=1000,
-            adjustment="all",  # splits + dividends adjusted — correct for long-running MAs
+            adjustment="all",
             feed=settings.alpaca_feed,
         )
         fresh_bars = data.get("bars") or []
 
-        # Persist new bars to the DB cache
         if fresh_bars:
             await db.executemany(
-                "INSERT OR REPLACE INTO bar_cache "
-                "(symbol, bar_date, open, high, low, close, volume) VALUES (?,?,?,?,?,?,?)",
+                "INSERT INTO bar_cache "
+                "(symbol, bar_date, open, high, low, close, volume) VALUES ($1,$2,$3,$4,$5,$6,$7) "
+                "ON CONFLICT (symbol, bar_date) DO UPDATE SET "
+                "open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low, "
+                "close = EXCLUDED.close, volume = EXCLUDED.volume, "
+                "fetched_at = CURRENT_TIMESTAMP",
                 [
                     (symbol, b["t"][:10], b["o"], b["h"], b["l"], b["c"], b["v"])
                     for b in fresh_bars
                     if b["t"][:10] not in cached_dates
                 ],
             )
-            await db.commit()
 
     all_bars = cached_bars + [
         {"t": b["t"], "o": b["o"], "h": b["h"], "l": b["l"], "c": b["c"], "v": b["v"]}

@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     alpaca_feed: str = "iex"
 
     api_token: str = "change-me"
-    database_url: str = "ledger.db"
+    database_url: str = "postgresql://localhost/ledger"
     allowed_origins: str = "http://localhost:5173"
     quiver_api_token: str = ""
     massive_api_key: str = ""

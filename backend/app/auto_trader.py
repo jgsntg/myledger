@@ -14,7 +14,7 @@ import logging
 from datetime import date, datetime, timezone
 from typing import Optional
 
-import aiosqlite
+import asyncpg
 
 from app.alpaca import data_get, trading_get, trading_post
 from app.config import settings as app_settings
@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 _DAILY_CAP = 1  # max auto-trades per symbol per calendar day
 
-# Human-readable explanations per signal label (why action was taken, potential benefit)
 _SIGNAL_COPY: dict[str, tuple[str, str]] = {
     "RSI Oversold": (
         "RSI dropped below 30, indicating the stock is oversold relative to recent price action.",
@@ -73,7 +72,6 @@ _RISK_LABELS: dict[int, str] = {
     10: "most aggressive",
 }
 
-# Trade size multiplier per risk level: 50% at 1, 100% at 5, 200% at 10
 _RISK_SIZE_MULTIPLIER: dict[int, float] = {
     1: 0.50, 2: 0.65, 3: 0.80, 4: 0.90, 5: 1.00,
     6: 1.20, 7: 1.40, 8: 1.60, 9: 1.80, 10: 2.00,
@@ -88,10 +86,8 @@ def _build_reasoning(
     recommendation: Optional[str],
     eval_reasons: list[str],
 ) -> str:
-    """Compose a plain-English explanation of why this trade was taken."""
     lines: list[str] = []
 
-    # --- Why was this action taken? ---
     if source == "signal":
         why, benefit = _SIGNAL_COPY.get(
             source_ref,
@@ -102,7 +98,6 @@ def _build_reasoning(
             lines.append(benefit)
 
     elif source == "alert":
-        # source_ref format: "price_below=150.0" or "rsi_above=65"
         try:
             condition, raw_threshold = source_ref.split("=", 1)
             threshold = float(raw_threshold)
@@ -132,7 +127,6 @@ def _build_reasoning(
     else:
         lines.append(f"Source '{source}' triggered a {side} on '{source_ref}'.")
 
-    # --- Evaluator summary ---
     if recommendation and recommendation != "proceed":
         reasons_str = "; ".join(eval_reasons) if eval_reasons else "see evaluator"
         lines.append(
@@ -142,7 +136,6 @@ def _build_reasoning(
     elif recommendation == "proceed":
         lines.append("Evaluator cleared: no tax or wash-sale concerns.")
 
-    # --- Risk level context ---
     label = _RISK_LABELS.get(risk_level, "balanced")
     multiplier = _RISK_SIZE_MULTIPLIER.get(risk_level, 1.0)
     pct = int(multiplier * 100)
@@ -167,61 +160,43 @@ async def maybe_auto_trade(
     side: str,
     source: str,
     source_ref: str,
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     amount_low: Optional[float] = None,
     amount_high: Optional[float] = None,
 ) -> None:
-    """Submit an auto-trade if conditions are met.
-
-    Args:
-        symbol: Ticker symbol.
-        side: 'buy' or 'sell'.
-        source: Origin of the signal — 'signal', 'alert', or 'filer'.
-        source_ref: Human-readable label for logging (e.g. 'RSI Oversold', 'price_below=150').
-        db: Open aiosqlite connection — caller must not close it before this returns.
-        amount_low: Dollar amount lower bound (filer transactions only); used for qty estimation.
-        amount_high: Dollar amount upper bound (filer transactions only).
-    """
     if app_settings.alpaca_env == "live":
         return
 
-    async with db.execute(
+    row = await db.fetchrow(
         "SELECT value FROM system_settings WHERE key = 'trading_mode'"
-    ) as cur:
-        row = await cur.fetchone()
+    )
     if not row or row["value"] != "auto":
         return
 
     today = date.today().isoformat()
-    async with db.execute(
-        "SELECT COUNT(*) as cnt FROM auto_trade_log WHERE symbol = ? AND DATE(created_at) = ?",
-        (symbol, today),
-    ) as cur:
-        cap_row = await cur.fetchone()
+    cap_row = await db.fetchrow(
+        "SELECT COUNT(*) as cnt FROM auto_trade_log WHERE symbol = $1 AND DATE(created_at) = $2",
+        symbol, today,
+    )
     if cap_row and cap_row["cnt"] >= _DAILY_CAP:
         logger.info("Auto-trade daily cap reached for %s", symbol)
         return
 
-    # Read risk level
     risk_level = 5
-    async with db.execute(
+    risk_row = await db.fetchrow(
         "SELECT value FROM system_settings WHERE key = 'risk_level'"
-    ) as cur:
-        risk_row = await cur.fetchone()
+    )
     if risk_row:
         try:
             risk_level = max(1, min(10, int(float(risk_row["value"]))))
         except (ValueError, TypeError):
             pass
 
-    # Short-selling guard: if allow_short_selling is off, skip sell signals
-    # when there is no existing long position to close.
     if side == "sell":
         allow_short: bool = False
-        async with db.execute(
+        ss_row = await db.fetchrow(
             "SELECT value FROM system_settings WHERE key = 'allow_short_selling'"
-        ) as cur:
-            ss_row = await cur.fetchone()
+        )
         if ss_row:
             allow_short = ss_row["value"].lower() == "true"
 
@@ -235,37 +210,34 @@ async def maybe_auto_trade(
                     )
                     return
             except Exception:
-                # 404 = no position at all — skip
                 logger.info(
                     "Auto-trade skipped: no position found for %s and short selling is disabled", symbol
                 )
                 return
 
-    # Read tax settings for evaluator
     short_term_rate, long_term_rate, long_term_days = 0.37, 0.20, 365
-    async with db.execute(
+    tax_rows = await db.fetch(
         "SELECT key, value FROM system_settings "
         "WHERE key IN ('tax_short_term_rate', 'tax_long_term_rate', 'tax_long_term_days')"
-    ) as cur:
-        for row in await cur.fetchall():
-            try:
-                if row["key"] == "tax_short_term_rate":
-                    short_term_rate = float(row["value"])
-                elif row["key"] == "tax_long_term_rate":
-                    long_term_rate = float(row["value"])
-                elif row["key"] == "tax_long_term_days":
-                    long_term_days = int(float(row["value"]))
-            except (ValueError, TypeError):
-                pass
+    )
+    for row in tax_rows:
+        try:
+            if row["key"] == "tax_short_term_rate":
+                short_term_rate = float(row["value"])
+            elif row["key"] == "tax_long_term_rate":
+                long_term_rate = float(row["value"])
+            elif row["key"] == "tax_long_term_days":
+                long_term_days = int(float(row["value"]))
+        except (ValueError, TypeError):
+            pass
 
     recommendation: Optional[str] = None
     eval_reasons: list[str] = []
 
-    # Risk 7–10: skip evaluator entirely (aggressive — maximize execution speed)
     if risk_level <= 6:
         try:
             eval_result = await evaluate_trade(
-                symbol, side, "1",  # qty placeholder — evaluator cares about symbol/side/holding
+                symbol, side, "1",
                 short_term_rate=short_term_rate,
                 long_term_rate=long_term_rate,
                 long_term_days=long_term_days,
@@ -277,7 +249,6 @@ async def maybe_auto_trade(
                     "Auto-trade pre-flight: %s %s — evaluator says '%s': %s",
                     side, symbol, recommendation, "; ".join(eval_reasons),
                 )
-                # Risk 1–3: hard gate — skip trade if evaluator is not happy
                 if risk_level <= 3:
                     logger.info(
                         "Auto-trade blocked by conservative risk level %d for %s", risk_level, symbol
@@ -287,24 +258,16 @@ async def maybe_auto_trade(
             logger.warning("Auto-trade: evaluator failed for %s, proceeding anyway", symbol)
 
     qty = await _compute_qty(symbol, amount_low, amount_high, db, risk_level)
-
     reasoning = _build_reasoning(source, source_ref, side, risk_level, recommendation, eval_reasons)
 
-    # Phase 1: write a pending record BEFORE calling Alpaca.
-    # If the process crashes after the Alpaca call but before the DB write we'd
-    # lose the record entirely — the order exists in Alpaca but not locally,
-    # causing it to show as "manual" in the UI.  Writing first guarantees there
-    # is always a row, even if the status never advances past "pending".
-    async with db.execute(
+    # Write pending record before calling Alpaca to prevent lost records on crash
+    log_id = await db.fetchval(
         "INSERT INTO auto_trade_log "
         "(symbol, side, qty, source, source_ref, order_id, status, error, recommendation, reasoning) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (symbol, side, qty, source, source_ref, None, "pending", None, recommendation, reasoning),
-    ) as cur:
-        log_id = cur.lastrowid
-    await db.commit()
+        "VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id",
+        symbol, side, qty, source, source_ref, None, "pending", None, recommendation, reasoning,
+    )
 
-    # Phase 2: submit to Alpaca, then update the row with the result.
     order_id: Optional[str] = None
     status = "submitted"
     error: Optional[str] = None
@@ -325,27 +288,25 @@ async def maybe_auto_trade(
         logger.error("Auto-trade failed: %s %s — %s", side, symbol, error)
 
     await db.execute(
-        "UPDATE auto_trade_log SET order_id = ?, status = ?, error = ? WHERE id = ?",
-        (order_id, status, error, log_id),
+        "UPDATE auto_trade_log SET order_id = $1, status = $2, error = $3 WHERE id = $4",
+        order_id, status, error, log_id,
     )
-    await db.commit()
 
 
 async def _compute_qty(
     symbol: str,
     amount_low: Optional[float],
     amount_high: Optional[float],
-    db: aiosqlite.Connection,
+    db: asyncpg.Connection,
     risk_level: int = 5,
 ) -> str:
     multiplier = _RISK_SIZE_MULTIPLIER.get(risk_level, 1.0)
     trade_usd: Optional[float] = None
 
     if amount_low is None:
-        async with db.execute(
+        row = await db.fetchrow(
             "SELECT value FROM system_settings WHERE key = 'default_trade_usd'"
-        ) as cur:
-            row = await cur.fetchone()
+        )
         if row:
             try:
                 trade_usd = float(row["value"])
@@ -377,23 +338,11 @@ async def _compute_qty(
     return "1"
 
 
-async def reconcile_pending_trades(db: aiosqlite.Connection) -> None:
-    """Patch auto_trade_log records left as 'pending' after a process crash.
-
-    When the server crashes between submitting the Alpaca order and writing the
-    order_id back to the DB, the record stays with order_id=NULL and
-    status='pending'.  The frontend filters those out, so the order appears as
-    manual even though the auto-trader placed it.
-
-    This function fetches recent Alpaca orders and matches them against pending
-    records by symbol + side + timestamp proximity (within 2 hours).  Stale
-    records that can't be matched after 24 hours are marked failed.
-    """
-    async with db.execute(
+async def reconcile_pending_trades(db: asyncpg.Connection) -> None:
+    pending = await db.fetch(
         "SELECT id, symbol, side, created_at FROM auto_trade_log "
         "WHERE order_id IS NULL AND status = 'pending'"
-    ) as cur:
-        pending = await cur.fetchall()
+    )
 
     if not pending:
         return
@@ -417,12 +366,9 @@ async def reconcile_pending_trades(db: aiosqlite.Connection) -> None:
         symbol = record["symbol"]
         side = record["side"]
 
-        try:
-            created_at = datetime.fromisoformat(record["created_at"])
-            if created_at.tzinfo is None:
-                created_at = created_at.replace(tzinfo=timezone.utc)
-        except (ValueError, TypeError):
-            continue
+        created_at = record["created_at"]
+        if created_at.tzinfo is None:
+            created_at = created_at.replace(tzinfo=timezone.utc)
 
         age_hours = (now - created_at).total_seconds() / 3600
 
@@ -443,8 +389,8 @@ async def reconcile_pending_trades(db: aiosqlite.Connection) -> None:
 
         if matched_order_id:
             await db.execute(
-                "UPDATE auto_trade_log SET order_id = ?, status = 'submitted' WHERE id = ?",
-                (matched_order_id, rec_id),
+                "UPDATE auto_trade_log SET order_id = $1, status = 'submitted' WHERE id = $2",
+                matched_order_id, rec_id,
             )
             logger.info(
                 "Reconciled pending #%d → Alpaca order %s (%s %s)",
@@ -453,14 +399,9 @@ async def reconcile_pending_trades(db: aiosqlite.Connection) -> None:
             updated += 1
         elif age_hours > 24:
             await db.execute(
-                "UPDATE auto_trade_log SET status = 'failed', error = ? WHERE id = ?",
-                (
-                    "Unresolved after 24h — process likely crashed before Alpaca confirmed the order",
-                    rec_id,
-                ),
+                "UPDATE auto_trade_log SET status = 'failed', error = $1 WHERE id = $2",
+                "Unresolved after 24h — process likely crashed before Alpaca confirmed the order",
+                rec_id,
             )
             logger.info("Marked stale pending #%d as failed (%s %s)", rec_id, side, symbol)
             updated += 1
-
-    if updated:
-        await db.commit()

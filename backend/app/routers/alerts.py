@@ -1,6 +1,6 @@
 from typing import Optional
 
-import aiosqlite
+import asyncpg
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
@@ -24,35 +24,27 @@ class AlertPatch(BaseModel):
 
 
 @router.get("/alerts")
-async def list_alerts(db: aiosqlite.Connection = Depends(get_db)) -> list[dict]:
-    async with db.execute(
+async def list_alerts(db: asyncpg.Connection = Depends(get_db)) -> list[dict]:
+    rows = await db.fetch(
         "SELECT id, symbol, condition, threshold, active, created_at, last_triggered_at "
         "FROM alerts ORDER BY created_at DESC"
-    ) as cur:
-        rows = await cur.fetchall()
-    await db.close()
+    )
     return [dict(r) for r in rows]
 
 
 @router.post("/alerts", status_code=status.HTTP_201_CREATED)
 async def create_alert(
     body: AlertCreate,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> dict:
     if body.condition not in _VALID_CONDITIONS:
         raise HTTPException(status_code=400, detail=f"Invalid condition. Use one of: {_VALID_CONDITIONS}")
 
-    await db.execute(
-        "INSERT INTO alerts (symbol, condition, threshold) VALUES (?, ?, ?)",
-        (body.symbol.upper(), body.condition, body.threshold),
+    row = await db.fetchrow(
+        "INSERT INTO alerts (symbol, condition, threshold) VALUES ($1, $2, $3) "
+        "RETURNING id, symbol, condition, threshold, active, created_at, last_triggered_at",
+        body.symbol.upper(), body.condition, body.threshold,
     )
-    await db.commit()
-    async with db.execute(
-        "SELECT id, symbol, condition, threshold, active, created_at, last_triggered_at "
-        "FROM alerts WHERE id = last_insert_rowid()"
-    ) as cur:
-        row = await cur.fetchone()
-    await db.close()
     assert row
     return dict(row)
 
@@ -61,31 +53,31 @@ async def create_alert(
 async def update_alert(
     alert_id: int,
     body: AlertPatch,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> dict:
     updates: list[str] = []
     params: list = []
+    idx = 1
     if body.active is not None:
-        updates.append("active = ?")
+        updates.append(f"active = ${idx}")
         params.append(1 if body.active else 0)
+        idx += 1
     if body.threshold is not None:
-        updates.append("threshold = ?")
+        updates.append(f"threshold = ${idx}")
         params.append(body.threshold)
+        idx += 1
 
     if not updates:
         raise HTTPException(status_code=400, detail="No fields to update")
 
     params.append(alert_id)
-    await db.execute(f"UPDATE alerts SET {', '.join(updates)} WHERE id = ?", params)
-    await db.commit()
+    await db.execute(f"UPDATE alerts SET {', '.join(updates)} WHERE id = ${idx}", *params)
 
-    async with db.execute(
+    row = await db.fetchrow(
         "SELECT id, symbol, condition, threshold, active, created_at, last_triggered_at "
-        "FROM alerts WHERE id = ?",
-        (alert_id,),
-    ) as cur:
-        row = await cur.fetchone()
-    await db.close()
+        "FROM alerts WHERE id = $1",
+        alert_id,
+    )
     if not row:
         raise HTTPException(status_code=404, detail="Alert not found")
     return dict(row)
@@ -94,8 +86,6 @@ async def update_alert(
 @router.delete("/alerts/{alert_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_alert(
     alert_id: int,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> None:
-    await db.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
-    await db.commit()
-    await db.close()
+    await db.execute("DELETE FROM alerts WHERE id = $1", alert_id)

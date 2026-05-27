@@ -3,15 +3,11 @@ services:
     name: ledger-backend
     runtime: docker
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /docs
-    disk:
-      name: ledger-db
-      mountPath: /data
-      sizeGB: 1
     envVars:
       - key: DATABASE_URL
-        value: /data/ledger.db
+        sync: false
       - key: ALPACA_ENV
         value: paper
       - key: ALPACA_FEED

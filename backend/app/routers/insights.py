@@ -5,7 +5,7 @@ import time
 from datetime import date, timedelta
 from typing import List, Optional
 
-import aiosqlite
+import asyncpg
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -27,7 +27,7 @@ _DEFAULT_UNIVERSE = [
 ]
 
 _BATCH_SIZE = 15
-_CACHE_TTL = 3600  # 1 hour
+_CACHE_TTL = 3600
 
 _cache: dict = {"data": None, "ts": 0.0, "universe_hash": ""}
 
@@ -50,16 +50,14 @@ class TopPerformersResponse(BaseModel):
 @router.get("/insights/top-performers")
 async def top_performers(
     refresh: bool = False,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> TopPerformersResponse:
     extra: List[str] = []
-    async with db.execute(
+    row = await db.fetchrow(
         "SELECT value FROM system_settings WHERE key = 'insights_extra_symbols'"
-    ) as cur:
-        row = await cur.fetchone()
+    )
     if row and row["value"]:
         extra = [s.strip().upper() for s in row["value"].split(",") if s.strip()]
-    await db.close()
 
     universe = list(dict.fromkeys(_DEFAULT_UNIVERSE + extra))
     universe_hash = ",".join(sorted(universe))

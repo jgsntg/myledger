@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-import aiosqlite
+import asyncpg
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
@@ -34,25 +34,19 @@ def _normalize_filer_type(filer_type: str) -> str:
     return normalized
 
 
-def _row_to_dict(row: aiosqlite.Row) -> dict:
-    return dict(row)
-
-
 @router.get("/filers")
-async def list_filers(db: aiosqlite.Connection = Depends(get_db)) -> list[dict]:
-    async with db.execute(
+async def list_filers(db: asyncpg.Connection = Depends(get_db)) -> list[dict]:
+    rows = await db.fetch(
         "SELECT id, name, filer_type, source_id, added_at "
         "FROM tracked_filers ORDER BY added_at DESC"
-    ) as cur:
-        rows = await cur.fetchall()
-    await db.close()
-    return [_row_to_dict(row) for row in rows]
+    )
+    return [dict(row) for row in rows]
 
 
 @router.post("/filers", status_code=status.HTTP_201_CREATED)
 async def create_filer(
     body: FilerCreate,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> dict:
     name = body.name.strip()
     filer_type = _normalize_filer_type(body.filer_type)
@@ -63,89 +57,72 @@ async def create_filer(
         raise HTTPException(status_code=400, detail="source_id is required")
 
     try:
-        await db.execute(
-            "INSERT INTO tracked_filers (name, filer_type, source_id) VALUES (?, ?, ?)",
-            (name, filer_type, source_id),
+        row = await db.fetchrow(
+            "INSERT INTO tracked_filers (name, filer_type, source_id) VALUES ($1, $2, $3) "
+            "RETURNING id, name, filer_type, source_id, added_at",
+            name, filer_type, source_id,
         )
-        await db.commit()
-    except aiosqlite.IntegrityError as exc:
+    except asyncpg.UniqueViolationError as exc:
         raise HTTPException(status_code=409, detail="Filer is already tracked") from exc
 
-    async with db.execute(
-        "SELECT id, name, filer_type, source_id, added_at "
-        "FROM tracked_filers WHERE id = last_insert_rowid()"
-    ) as cur:
-        row = await cur.fetchone()
-    await db.close()
     assert row
-    return _row_to_dict(row)
+    return dict(row)
 
 
 @router.delete("/filers/{filer_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_filer(
     filer_id: int,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> None:
-    await db.execute("DELETE FROM tracked_filers WHERE id = ?", (filer_id,))
-    await db.commit()
-    await db.close()
+    await db.execute("DELETE FROM tracked_filers WHERE id = $1", filer_id)
 
 
 @router.get("/filers/{filer_id}/transactions")
 async def list_transactions(
     filer_id: int,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict]:
-    async with db.execute(
+    rows = await db.fetch(
         "SELECT id, filer_id, symbol, transaction_type, amount_low, amount_high, "
         "trade_date, filed_at, fetched_at "
-        "FROM filer_transactions WHERE filer_id = ? ORDER BY trade_date DESC, id DESC",
-        (filer_id,),
-    ) as cur:
-        rows = await cur.fetchall()
-    await db.close()
-    return [_row_to_dict(row) for row in rows]
+        "FROM filer_transactions WHERE filer_id = $1 ORDER BY trade_date DESC, id DESC",
+        filer_id,
+    )
+    return [dict(row) for row in rows]
 
 
 @router.get("/filers/{filer_id}/holdings")
 async def list_holdings(
     filer_id: int,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict]:
-    async with db.execute(
+    rows = await db.fetch(
         "SELECT id, filer_id, symbol, shares, value_usd, report_date, fetched_at "
-        "FROM filer_holdings WHERE filer_id = ? ORDER BY report_date DESC, symbol ASC",
-        (filer_id,),
-    ) as cur:
-        rows = await cur.fetchall()
-    await db.close()
-    return [_row_to_dict(row) for row in rows]
+        "FROM filer_holdings WHERE filer_id = $1 ORDER BY report_date DESC, symbol ASC",
+        filer_id,
+    )
+    return [dict(row) for row in rows]
 
 
 @router.post("/filers/{filer_id}/refresh")
 async def refresh_filer(
     filer_id: int,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> dict:
-    async with db.execute(
-        "SELECT id, name, filer_type, source_id, added_at FROM tracked_filers WHERE id = ?",
-        (filer_id,),
-    ) as cur:
-        filer = await cur.fetchone()
+    filer = await db.fetchrow(
+        "SELECT id, name, filer_type, source_id, added_at FROM tracked_filers WHERE id = $1",
+        filer_id,
+    )
     if not filer:
-        await db.close()
         raise HTTPException(status_code=404, detail="Filer not found")
 
     if filer["filer_type"] == "congress":
-        result = await _refresh_congress_filer(db, filer)
+        return await _refresh_congress_filer(db, filer)
     else:
-        result = await _refresh_institution_filer(db, filer)
-
-    await db.close()
-    return result
+        return await _refresh_institution_filer(db, filer)
 
 
-async def _refresh_congress_filer(db: aiosqlite.Connection, filer: aiosqlite.Row) -> dict:
+async def _refresh_congress_filer(db: asyncpg.Connection, filer: asyncpg.Record) -> dict:
     try:
         trades = await quiver.fetch_congress_trades(filer["source_id"])
     except httpx.HTTPStatusError as exc:
@@ -174,24 +151,21 @@ async def _refresh_congress_filer(db: aiosqlite.Connection, filer: aiosqlite.Row
 
         amount_low, amount_high = quiver.parse_amount_range(trade.get("Range"))
         filed_at = _parse_optional_date(trade.get("FilingDate"))
-        cur = await db.execute(
-            "INSERT OR IGNORE INTO filer_transactions "
+        row = await db.fetchrow(
+            "INSERT INTO filer_transactions "
             "(filer_id, symbol, transaction_type, amount_low, amount_high, trade_date, filed_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                filer["id"],
-                symbol,
-                transaction_type,
-                amount_low,
-                amount_high,
-                trade_date[:10],
-                filed_at,
-            ),
+            "VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING RETURNING id",
+            filer["id"],
+            symbol,
+            transaction_type,
+            amount_low,
+            amount_high,
+            trade_date[:10],
+            filed_at,
         )
-        row_inserted = cur.rowcount and cur.rowcount > 0
-        inserted += 1 if row_inserted else 0
-
+        row_inserted = row is not None
         if row_inserted:
+            inserted += 1
             side = "sell" if transaction_type.lower().startswith("sale") else "buy"
             await maybe_auto_trade(
                 symbol=symbol,
@@ -203,9 +177,8 @@ async def _refresh_congress_filer(db: aiosqlite.Connection, filer: aiosqlite.Row
                 amount_high=amount_high,
             )
 
-    await db.commit()
     return {
-        "filer": _row_to_dict(filer),
+        "filer": dict(filer),
         "transactions_seen": len(trades),
         "transactions_inserted": inserted,
         "holdings_seen": 0,
@@ -214,8 +187,8 @@ async def _refresh_congress_filer(db: aiosqlite.Connection, filer: aiosqlite.Row
 
 
 async def _refresh_institution_filer(
-    db: aiosqlite.Connection,
-    filer: aiosqlite.Row,
+    db: asyncpg.Connection,
+    filer: asyncpg.Record,
 ) -> dict:
     data = await edgar.fetch_13f_holdings(filer["source_id"])
     holdings = data.get("holdings", [])
@@ -225,21 +198,20 @@ async def _refresh_institution_filer(
         report_date = str(holding.get("report_date") or "").strip()
         if not symbol or not report_date:
             continue
-        cur = await db.execute(
-            "INSERT OR IGNORE INTO filer_holdings "
-            "(filer_id, symbol, shares, value_usd, report_date) VALUES (?, ?, ?, ?, ?)",
-            (
-                filer["id"],
-                symbol,
-                holding.get("shares"),
-                holding.get("value_usd"),
-                report_date[:10],
-            ),
+        row = await db.fetchrow(
+            "INSERT INTO filer_holdings "
+            "(filer_id, symbol, shares, value_usd, report_date) VALUES ($1, $2, $3, $4, $5) "
+            "ON CONFLICT DO NOTHING RETURNING id",
+            filer["id"],
+            symbol,
+            holding.get("shares"),
+            holding.get("value_usd"),
+            report_date[:10],
         )
-        inserted += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
-    await db.commit()
+        if row is not None:
+            inserted += 1
     return {
-        "filer": _row_to_dict(filer),
+        "filer": dict(filer),
         "transactions_seen": 0,
         "transactions_inserted": 0,
         "holdings_seen": len(holdings),

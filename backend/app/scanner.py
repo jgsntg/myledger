@@ -19,24 +19,17 @@ from datetime import datetime, timezone
 from app.alpaca import data_get, trading_get
 from app.auto_trader import maybe_auto_trade, reconcile_pending_trades
 from app.config import settings
-from app.database import get_db
+from app.database import get_pool
 from app.indicators import compute_signals
 from app.indicators import rsi as compute_rsi
 from app.routers.market import _fetch_bars_with_cache
 
 logger = logging.getLogger(__name__)
 
-# In-memory signal state: symbol → set of active signal labels from last scan.
-# Resets on server restart — that's intentional; we only log *transitions*.
 _prev_signals: dict[str, set[str]] = {}
 
 
-# ---------------------------------------------------------------------------
-# Signal scanner
-# ---------------------------------------------------------------------------
-
 async def signal_scanner_loop() -> None:
-    """Runs forever; sleeps 60s between scans."""
     while True:
         try:
             clock = await trading_get("/v2/clock")
@@ -50,12 +43,10 @@ async def signal_scanner_loop() -> None:
 
 
 async def _run_signal_scan() -> None:
-    db = await get_db()
-    try:
+    async with get_pool().acquire() as db:
         await reconcile_pending_trades(db)
 
-        async with db.execute("SELECT symbol FROM watchlist") as cur:
-            rows = await cur.fetchall()
+        rows = await db.fetch("SELECT symbol FROM watchlist")
         symbols = [r["symbol"] for r in rows]
 
         for symbol in symbols:
@@ -82,8 +73,8 @@ async def _run_signal_scan() -> None:
                         await db.execute(
                             """INSERT INTO signal_events
                                (symbol, signal_type, signal_label, price_at_signal, rsi_at_signal)
-                               VALUES (?, ?, ?, ?, ?)""",
-                            (symbol, sig["type"], sig["label"], price, rsi_val),
+                               VALUES ($1, $2, $3, $4, $5)""",
+                            symbol, sig["type"], sig["label"], price, rsi_val,
                         )
                         logger.info("New signal: %s %s @ %.2f", symbol, sig["label"], price)
                         if sig["type"] in ("buy", "sell"):
@@ -95,24 +86,13 @@ async def _run_signal_scan() -> None:
                                 db=db,
                             )
 
-                if new_labels:
-                    await db.commit()
-
                 _prev_signals[symbol] = active_labels
 
             except Exception:
                 logger.exception("Signal scan failed for %s", symbol)
 
-    finally:
-        await db.close()
-
-
-# ---------------------------------------------------------------------------
-# Alert scanner
-# ---------------------------------------------------------------------------
 
 async def alert_scanner_loop() -> None:
-    """Runs forever; sleeps 30s between scans."""
     while True:
         try:
             clock = await trading_get("/v2/clock")
@@ -126,12 +106,10 @@ async def alert_scanner_loop() -> None:
 
 
 async def _run_alert_scan() -> None:
-    db = await get_db()
-    try:
-        async with db.execute(
+    async with get_pool().acquire() as db:
+        alerts = await db.fetch(
             "SELECT id, symbol, condition, threshold, last_triggered_at FROM alerts WHERE active = 1"
-        ) as cur:
-            alerts = await cur.fetchall()
+        )
 
         if not alerts:
             return
@@ -159,11 +137,11 @@ async def _run_alert_scan() -> None:
             if price is None:
                 continue
 
-            # 1-hour debounce
+            # 1-hour debounce — asyncpg returns datetime objects, not strings
             if alert["last_triggered_at"]:
-                last_str = alert["last_triggered_at"]
-                # SQLite stores without timezone — treat as UTC
-                last_dt = datetime.fromisoformat(last_str).replace(tzinfo=timezone.utc)
+                last_dt = alert["last_triggered_at"]
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
                 if (now - last_dt).total_seconds() < 3600:
                     continue
 
@@ -176,11 +154,8 @@ async def _run_alert_scan() -> None:
             elif condition == "price_below":
                 triggered = price < threshold
             elif condition in ("rsi_above", "rsi_below"):
-                ind_db = await get_db()
-                try:
+                async with get_pool().acquire() as ind_db:
                     bars = await _fetch_bars_with_cache(symbol, 365, ind_db)
-                finally:
-                    await ind_db.close()
                 if bars:
                     closes = [b["c"] for b in bars]
                     rsi_val = compute_rsi(closes)
@@ -192,8 +167,8 @@ async def _run_alert_scan() -> None:
 
             if triggered:
                 await db.execute(
-                    "UPDATE alerts SET last_triggered_at = CURRENT_TIMESTAMP WHERE id = ?",
-                    (alert["id"],),
+                    "UPDATE alerts SET last_triggered_at = CURRENT_TIMESTAMP WHERE id = $1",
+                    alert["id"],
                 )
                 payload = json.dumps({
                     "symbol": symbol,
@@ -204,8 +179,8 @@ async def _run_alert_scan() -> None:
                 await db.execute(
                     """INSERT INTO notifications_log
                        (kind, ref_id, channel, recipient, payload, status)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    ("alert", alert["id"], "email", "user", payload, "pending"),
+                       VALUES ($1, $2, $3, $4, $5, $6)""",
+                    "alert", alert["id"], "email", "user", payload, "pending",
                 )
                 logger.info("Alert triggered: %s %s %.2f (price=%.2f)", symbol, condition, threshold, price)
                 side = "buy" if condition in ("price_below", "rsi_below") else "sell"
@@ -217,18 +192,8 @@ async def _run_alert_scan() -> None:
                     db=db,
                 )
 
-        await db.commit()
-
-    finally:
-        await db.close()
-
-
-# ---------------------------------------------------------------------------
-# Public helpers
-# ---------------------------------------------------------------------------
 
 def start_scanners() -> list[asyncio.Task]:
-    """Start both background tasks and return them so they can be cancelled on shutdown."""
     signal_task = asyncio.create_task(signal_scanner_loop(), name="signal-scanner")
     alert_task = asyncio.create_task(alert_scanner_loop(), name="alert-scanner")
     return [signal_task, alert_task]

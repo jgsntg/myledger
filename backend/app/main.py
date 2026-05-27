@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app import alpaca, massive, quiver, symbols as symbols_mod
 from app.config import settings
-from app.database import init_db
+from app.database import init_db, close_db
 from app.routers import (
     account,
     ai as ai_router,
@@ -43,6 +43,7 @@ async def lifespan(app: FastAPI):
     await alpaca.shutdown()
     await quiver.shutdown()
     await massive.shutdown()
+    await close_db()
 
 
 app = FastAPI(title="Ledger API", lifespan=lifespan)

@@ -1,4 +1,4 @@
-import aiosqlite
+import asyncpg
 from fastapi import APIRouter, Depends, Query
 
 from app.auth import require_token
@@ -11,16 +11,14 @@ router = APIRouter(prefix="/api", dependencies=[Depends(require_token)])
 async def get_signal_history(
     symbol: str = Query(...),
     days: int = 30,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> list[dict]:
-    async with db.execute(
+    rows = await db.fetch(
         """SELECT symbol, signal_type, signal_label, price_at_signal, rsi_at_signal, triggered_at
            FROM signal_events
-           WHERE symbol = ?
-             AND triggered_at >= datetime('now', ?)
+           WHERE symbol = $1
+             AND triggered_at >= NOW() - $2 * INTERVAL '1 day'
            ORDER BY triggered_at DESC""",
-        (symbol.upper(), f"-{days} days"),
-    ) as cur:
-        rows = await cur.fetchall()
-    await db.close()
+        symbol.upper(), days,
+    )
     return [dict(r) for r in rows]

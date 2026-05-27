@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import aiosqlite
+import asyncpg
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
@@ -20,24 +20,23 @@ class EvaluateRequest(BaseModel):
 @router.post("/evaluate")
 async def evaluate(
     body: EvaluateRequest,
-    db: aiosqlite.Connection = Depends(get_db),
+    db: asyncpg.Connection = Depends(get_db),
 ) -> EvaluationResult:
     short_term_rate, long_term_rate, long_term_days = 0.37, 0.20, 365
-    async with db.execute(
+    rows = await db.fetch(
         "SELECT key, value FROM system_settings "
         "WHERE key IN ('tax_short_term_rate', 'tax_long_term_rate', 'tax_long_term_days')"
-    ) as cur:
-        for row in await cur.fetchall():
-            try:
-                if row["key"] == "tax_short_term_rate":
-                    short_term_rate = float(row["value"])
-                elif row["key"] == "tax_long_term_rate":
-                    long_term_rate = float(row["value"])
-                elif row["key"] == "tax_long_term_days":
-                    long_term_days = int(float(row["value"]))
-            except (ValueError, TypeError):
-                pass
-    await db.close()
+    )
+    for row in rows:
+        try:
+            if row["key"] == "tax_short_term_rate":
+                short_term_rate = float(row["value"])
+            elif row["key"] == "tax_long_term_rate":
+                long_term_rate = float(row["value"])
+            elif row["key"] == "tax_long_term_days":
+                long_term_days = int(float(row["value"]))
+        except (ValueError, TypeError):
+            pass
     return await evaluate_trade(
         body.symbol, body.side, body.qty,
         short_term_rate=short_term_rate,
