@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-26 — Catch Me Up tab (market news, watchlist news, today's + yesterday's orders); TaxImpactStrip scoped to Positions tab only; PortfolioChart hidden on Catch Me Up tab.
+Last updated: 2026-05-26 — Production deployed (Vercel + Render live); market-wide news endpoint replacing SPY proxy; Render disk gotcha documented.
 
 ## Current State
 
@@ -27,6 +27,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading and SQLi
 | 11 | Portfolio chart, tax exposure strip, reconciliation fix, settings UX | ✅ Done |
 | 12 | Production deploy wiring (CORS env var, API base URL, render.yaml, vercel.json) | ✅ Done |
 | 13 | Catch Me Up tab — market news, watchlist news, today's/yesterday's orders | ✅ Done |
+| 14 | Production live — Vercel + Render deployed, env wired, market-wide news endpoint | ✅ Done |
 
 ---
 
@@ -73,10 +74,11 @@ VITE_API_BASE_URL=          # empty locally — Vite proxy handles /api/*
                              # in Vercel dashboard: https://ledger-backend.onrender.com
 ```
 
-**Production-only env vars (set in host dashboards, not in .env files):**
-- Render: `ALLOWED_ORIGINS=https://your-app.vercel.app` (add after Vercel URL is known)
-- Render: `DATABASE_URL=/data/ledger.db` (persistent disk)
-- Vercel: `VITE_API_BASE_URL=https://your-backend.onrender.com`
+**Production env vars (already set in host dashboards):**
+- Render: `ALLOWED_ORIGINS=https://myledger-wheat.vercel.app` ✅
+- Render: `DATABASE_URL=/data/ledger.db` (persistent disk at `/data`) ✅
+- Vercel: `VITE_API_BASE_URL=https://myledger-awc8.onrender.com` ✅
+- Vercel: `VITE_API_TOKEN=<shared secret>` ✅
 
 Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
@@ -103,7 +105,7 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 - `app/database.py` — SQLite DDL + `init_db()`. Tables: `watchlist`, `signal_events`, `alerts`, `bar_cache`, `notifications_log`, `tracked_filers`, `filer_transactions`, `filer_holdings`, `system_settings`, `auto_trade_log`.
 - `app/alpaca.py` — Two httpx clients (trading + data). `trading_get()`, `trading_post()`, `data_get()`.
 - `app/quiver.py` — Quiver Quant client. `fetch_congress_trades()`.
-- `app/massive.py` — Polygon.io client. Rate-limited with `asyncio.Semaphore(3)`.
+- `app/massive.py` — Polygon.io client. Rate-limited with `asyncio.Semaphore(3)`. Functions: `fetch_ticker_details`, `fetch_news`, `fetch_market_news` (no ticker), `fetch_financials`, `fetch_earnings_calendar`, `fetch_sector_map`, `fetch_ticker_names`.
 - `app/symbols.py` — Local NASDAQ/NYSE name lookup (~12k symbols). Registers `GET /api/symbols/names`.
 - `app/edgar.py` — **Stub only.** Returns empty holdings.
 - `app/indicators.py` — RSI, EMA, SMA, MACD, Bollinger, `compute_signals()`.
@@ -130,7 +132,7 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 | `settings.py` | `GET/PATCH /api/settings`, `GET /api/auto-trades`, `POST /api/auto-trades/backfill` |
 | `evaluate.py` | `POST /api/evaluate` |
 | `insights.py` | `GET /api/insights/top-performers?refresh=` |
-| `massive.py` | ticker, news, financials, earnings-calendar, sectors, names |
+| `massive.py` | `GET /api/massive/news` (market-wide), `GET /api/massive/news/{symbol}`, ticker, financials, earnings-calendar, sectors, names |
 | `ai.py` | `POST /api/ai/briefing`, `POST /api/ai/risk-narrative` |
 
 ---
@@ -144,7 +146,8 @@ A dedicated "Daily Briefing" tab inserted **before** Watchlist in the tab bar. R
 ### Three sections
 
 **1. Top Market News**
-- Fetches `GET /api/massive/news/SPY?limit=10` (SPY as market proxy) and shows the top 5 articles.
+- Fetches `GET /api/massive/news?limit=5` (Polygon market-wide feed, no ticker filter) and shows the top 5 articles.
+- Previously used SPY as a proxy — replaced in Phase 14 with the real market-wide endpoint.
 - Each card: publisher name, time-ago, title, truncated description (160 chars), external link.
 - Hover highlights border to `var(--accent)`.
 
@@ -161,7 +164,7 @@ A dedicated "Daily Briefing" tab inserted **before** Watchlist in the tab bar. R
 
 ### Key implementation details
 
-- **No new backend endpoints** — uses existing `GET /api/massive/news/{symbol}` and `orders` prop passed from App.
+- **Backend endpoints used:** `GET /api/massive/news` (market-wide, Phase 14) and `GET /api/massive/news/{symbol}` (watchlist news). Orders filtered client-side from `orders` prop.
 - **Visibility guards in App.tsx:**
   - `PortfolioChart` hidden when `activeTab === 'catch-up'`
   - `TaxImpactStrip` **only** shown when `activeTab === 'positions'` (scoped this session — was previously all non-catch-up tabs)
@@ -347,7 +350,7 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ### App shell
 
 - `src/App.tsx` — Bootstrap + periodic polls. `PortfolioChart` hidden on `catch-up` tab. `TaxImpactStrip` only on `positions` tab. `autoTrades` polled every 30s. `autoOrderIds` Set + `handleMarkAuto()` defined here.
-- `src/api/client.ts` — All typed API methods. `BASE` constant prepended to every fetch (empty locally, Render URL in prod).
+- `src/api/client.ts` — All typed API methods. `BASE` constant prepended to every fetch (empty locally, Render URL in prod). Includes `getMarketNews(limit)` → `GET /api/massive/news`.
 - `src/types/index.ts` — All types. `AutoTradeEntry` has `recommendation`, `reasoning`, `status`. `AppSettings` has `risk_level` and `allow_short_selling`.
 
 ### Tab shell
@@ -359,7 +362,7 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 | `PortfolioChart.tsx` | Portfolio equity area chart + period tabs + 4-cell stats strip. Hidden on Catch Me Up tab. Default period: `1M`. |
 | `TaxImpactStrip.tsx` | After-tax P&L estimates. **Positions tab only.** Amber banner if rates differ from recommended (38.8/23.8). |
 | `SettingsDrawer.tsx` | Right-side slide-in drawer wrapping `SettingsPanel`. Key includes all 6 mutable fields to force remount on boot. |
-| `tabs/CatchMeUpTab.tsx` | **New (Phase 13).** Daily briefing: market news (SPY proxy, top 5), watchlist news (per-symbol, deduped, top 5), today's orders, yesterday's orders. No PortfolioChart or TaxImpactStrip. |
+| `tabs/CatchMeUpTab.tsx` | **New (Phase 13).** Daily briefing: market news (Polygon market-wide feed, top 5), watchlist news (per-symbol, deduped, top 5), today's orders, yesterday's orders. No PortfolioChart or TaxImpactStrip. |
 | `tabs/WatchlistTab.tsx` | 2-col grid. Passes `symbolNames` to `Watchlist`. |
 | `tabs/PositionsTab.tsx` | Sector strip → `PositionsTable` + `AiNarratives` + `OrdersTable`. Receives `autoTrades` from App. |
 | `tabs/FilersTab.tsx` | `TrackedFilersSection` + `AutoTradeLog`. |
@@ -399,39 +402,60 @@ Rate limit guard: `asyncio.Semaphore(3)`. Polygon free tier = 5 req/min.
 
 ---
 
-## Deployment Plan (decided 2026-05-15, unchanged)
+## Production Deployment (LIVE as of 2026-05-26)
 
-- **Frontend** → Vercel
-- **Backend** → Render Starter ($7/mo) or Railway Hobby ($5/mo)
-- **Database** → SQLite on persistent volume
+- **Frontend** → Vercel: **https://myledger-wheat.vercel.app**
+- **Backend** → Render Starter: **https://myledger-awc8.onrender.com**
+- **Database** → SQLite on Render persistent disk at `/data/ledger.db`
 
-**Code changes done (Phase 12):** CORS env var, API base URL in client, render.yaml, vercel.json, TypeScript build fix.
+All env vars wired. CORS configured. Both services live.
 
-**Remaining steps (secrets/config only — no more code needed):**
-1. Deploy backend to Render: connect repo, select `backend/` as root, Render reads `render.yaml` automatically. Fill in all `sync: false` secrets in the Render dashboard.
-2. Note the Render backend URL (e.g. `https://ledger-backend.onrender.com`).
-3. Deploy frontend to Vercel: connect repo, set root to `frontend/`, Vercel reads `vercel.json`. Set two env vars in Vercel dashboard:
-   - `VITE_API_TOKEN` = same value as backend `API_TOKEN`
-   - `VITE_API_BASE_URL` = the Render backend URL from step 2
-4. Note the Vercel URL (e.g. `https://ledger.vercel.app`).
-5. Set `ALLOWED_ORIGINS=https://ledger.vercel.app` in the Render backend env dashboard, then redeploy backend.
+### Vercel CLI
+
+Vercel CLI is authenticated (`vercel whoami` → `jgsntg`). Frontend directory is linked to the `myledger` project (`.vercel/` dir exists). To redeploy:
+
+```bash
+# from frontend/ dir
+vercel --prod --yes
+```
+
+### Render CLI / Extension
+
+No Render CLI available. Render VS Code extension is installed but not yet registering MCP tools in Claude (requires a Claude restart to pick up). Once active, Claude can trigger deploys and check service status directly.
+
+Manual redeploy: push to `main` on GitHub — Render auto-deploys on push.
+
+### ⚠️ Render Disk Gotcha
+
+**First deployment lost data.** The initial Render service started without the persistent disk properly attached, so the SQLite DB lived in the container's ephemeral filesystem. When code was pushed and Render rebuilt the container, that data was wiped.
+
+**Current state:** Disk is now mounted at `/data/`, `DATABASE_URL=/data/ledger.db`. Data **persists across redeploys** from this point forward.
+
+**Rule for future sessions:** Before pushing backend changes that trigger a Render redeploy, confirm the user has no critical live data they need to preserve (or that it's already backed up). Do not push backend redeploys without warning the user.
 
 ---
 
-## What Changed This Session (2026-05-26 — Phase 13)
+## What Changed This Session (2026-05-26 — Phases 13 + 14)
 
 ### New Features
 
-1. **Catch Me Up tab** (`CatchMeUpTab.tsx`) — new first tab ("Daily briefing"). Three sections: Top Market News (SPY proxy, top 5), Your Watchlist in the News (per-symbol fetch, deduped, top 5 with ticker tag), Today's Orders + Yesterday's Orders (client-side date filter from existing `orders` prop).
+1. **Catch Me Up tab** (`CatchMeUpTab.tsx`) — new first tab ("Daily briefing"). Three sections: Top Market News (market-wide feed, top 5), Your Watchlist in the News (per-symbol fetch, deduped, top 5 with ticker tag), Today's Orders + Yesterday's Orders (client-side date filter from existing `orders` prop).
 2. **TaxImpactStrip scoped to Positions only** — previously shown on all tabs except Catch Me Up; now only renders when `activeTab === 'positions'`.
 3. **PortfolioChart hidden on Catch Me Up** — clean daily briefing view with no chart noise.
+4. **Market-wide news endpoint** (`GET /api/massive/news`) — `fetch_market_news()` in `massive.py` calls Polygon `/v2/reference/news` with no ticker param. Replaces the SPY proxy used in the initial CatchMeUpTab implementation. Route added before `/news/{symbol}` to avoid path collision.
+5. **Production deployed** — Frontend live on Vercel, backend on Render. `VITE_API_BASE_URL` set to Render URL. `ALLOWED_ORIGINS` set in Render. Full stack connected.
 
 ### Files Modified
 
+**Backend:**
+- `app/massive.py` — added `fetch_market_news(limit)` function
+- `app/routers/massive.py` — added `GET /api/massive/news` route (placed before `GET /api/massive/news/{symbol}`)
+
 **Frontend:**
-- `src/components/AppHeader.tsx` — added `{ id: 'catch-up', label: 'Catch Me Up', sub: 'Daily briefing' }` as first entry in `TABS`
-- `src/App.tsx` — `PortfolioChart` wrapped in `activeTab !== 'catch-up'` guard; `TaxImpactStrip` wrapped in `activeTab === 'positions'` guard; `CatchMeUpTab` import + render block added
-- `src/components/tabs/CatchMeUpTab.tsx` — **new file** (375 lines)
+- `src/api/client.ts` — added `getMarketNews(limit)` → `GET /api/massive/news`
+- `src/components/AppHeader.tsx` — added `catch-up` tab as first entry in `TABS`
+- `src/App.tsx` — visibility guards for `PortfolioChart` and `TaxImpactStrip`; `CatchMeUpTab` wired
+- `src/components/tabs/CatchMeUpTab.tsx` — **new file**; updated to use `getMarketNews()` instead of SPY proxy
 
 ---
 
@@ -461,19 +485,20 @@ Rate limit guard: `asyncio.Semaphore(3)`. Polygon free tier = 5 req/min.
 
 ### Immediate — High Value
 
-1. **Deploy to production** — All code is ready. Follow the 5-step sequence in the Deployment Plan section (secrets only, no more code needed).
-2. **QUIVER_API_TOKEN** — Add real token to `backend/.env` locally and to Render env dashboard. Still the only blocker for the full Phase 2b copy-trading flow.
-3. **Update tax rates in existing DB** — If local `ledger.db` still has 37%/20% from before Phase 11, run: `UPDATE system_settings SET value='0.388' WHERE key='tax_short_term_rate'; UPDATE system_settings SET value='0.238' WHERE key='tax_long_term_rate';` or update via Settings drawer.
+1. **Re-add watchlist symbols on production** — The first Render deploy used an ephemeral DB; a subsequent redeploy wiped it. The persistent disk is now active — symbols added going forward will survive redeploys. User needs to re-add their symbols at https://myledger-wheat.vercel.app once.
+2. **QUIVER_API_TOKEN** — Add real token to `backend/.env` locally AND to Render env dashboard. Still the only blocker for the full Phase 2b copy-trading flow (Filer sync button).
+3. **Update tax rates in production DB** — Fresh Render DB initialized with defaults (0.388/0.238) which are correct. Local `ledger.db` may still have 37%/20% if not updated — fix via Settings drawer or SQL: `UPDATE system_settings SET value='0.388' WHERE key='tax_short_term_rate'; UPDATE system_settings SET value='0.238' WHERE key='tax_long_term_rate';`
+4. **Restart Claude to pick up Render extension MCP tools** — User installed Render VS Code extension. After restart, Claude should have direct access to Render service status and deploy triggers.
 
 ### Next in Feature Build Sequence
 
-4. **Catch Me Up — general market news** — Currently uses SPY as a market proxy. Polygon's free tier has a `/v2/reference/news` endpoint (no symbol required) that returns market-wide news; wiring that up would give broader coverage. Would need a new backend route `GET /api/massive/news` (no symbol param).
-5. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Would require tracking entry price at buy time (Alpaca doesn't return cost basis on closed orders).
-6. **Bundle splitting** — Production build is ~582 KB / 170 KB gzipped (one chunk). Vite warns above 500 KB. Consider lazy-loading recharts.
+5. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would require tracking entry price at buy time.
+6. **Bundle splitting** — Production build is ~591 KB / 171 KB gzipped (one chunk). Vite warns above 500 KB. Consider lazy-loading recharts.
 
 ### Low Priority / Future
 
-7. **AI Narrative enhancements** — Current narratives use positions data only. Could incorporate Polygon news per symbol.
-8. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
-9. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
-10. **Mobile / responsive** — Desktop-only. Below ~1100px the layout breaks.
+7. **DB backup / export** — No backup mechanism. If Render disk is lost, all watchlist/settings/auto-trade history is gone. A simple `GET /api/export` endpoint returning the DB contents as JSON would mitigate risk.
+8. **AI Narrative enhancements** — Current narratives use positions data only. Could incorporate Polygon news per symbol.
+9. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
+10. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
+11. **Mobile / responsive** — Desktop-only. Below ~1100px the layout breaks.
