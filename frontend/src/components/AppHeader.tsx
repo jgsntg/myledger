@@ -3,6 +3,7 @@ import { ClockData } from '../types'
 import Header from './Header'
 
 export const TABS = [
+  { id: 'catch-up', label: 'Catch Me Up', sub: 'Daily briefing' },
   { id: 'watchlist', label: 'Watchlist', sub: 'Quotes & signals' },
   { id: 'positions', label: 'Positions', sub: 'Holdings & orders' },
   { id: 'filers', label: 'Filers', sub: 'Smart money' },

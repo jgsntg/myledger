@@ -5,6 +5,7 @@ import PortfolioChart from './components/PortfolioChart'
 import TaxImpactStrip from './components/TaxImpactStrip'
 import SettingsDrawer from './components/SettingsDrawer'
 import TradeModal from './components/TradeModal'
+import CatchMeUpTab from './components/tabs/CatchMeUpTab'
 import WatchlistTab from './components/tabs/WatchlistTab'
 import PositionsTab from './components/tabs/PositionsTab'
 import FilersTab from './components/tabs/FilersTab'
@@ -304,9 +305,16 @@ export default function App() {
           padding: '28px 32px 80px',
         }}
       >
-        <PortfolioChart account={account} positions={positions} />
-        <TaxImpactStrip account={account} positions={positions} settings={appSettings} />
+        {activeTab !== 'catch-up' && (
+          <PortfolioChart account={account} positions={positions} />
+        )}
+        {activeTab === 'positions' && (
+          <TaxImpactStrip account={account} positions={positions} settings={appSettings} />
+        )}
 
+        {activeTab === 'catch-up' && (
+          <CatchMeUpTab symbols={symbols} orders={orders} />
+        )}
         {activeTab === 'watchlist' && (
           <WatchlistTab
             symbols={symbols}
