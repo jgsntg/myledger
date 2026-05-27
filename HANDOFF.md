@@ -1,10 +1,10 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-27 — SQLite→PostgreSQL migration (Supabase); Catch Me Up 2×2 desktop grid layout.
+Last updated: 2026-05-27 — Production stabilization: Supabase pooler fix, asyncpg type coercion fix, DB health endpoint.
 
 ## Current State
 
-FastAPI + React/TypeScript trading dashboard using Alpaca paper trading. **Database is now Supabase PostgreSQL** (asyncpg) — data persists across Render deploys permanently.
+FastAPI + React/TypeScript trading dashboard using Alpaca paper trading. **Database is Supabase PostgreSQL** (asyncpg via session-mode connection pooler) — data persists across Render deploys permanently.
 
 ### Completed Phases
 
@@ -30,6 +30,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading. **Datab
 | 14 | Production live — Vercel + Render deployed, env wired, market-wide news endpoint | ✅ Done |
 | 15 | SQLite → PostgreSQL/asyncpg migration; Supabase as persistent production DB | ✅ Done |
 | 16 | Catch Me Up 2×2 grid layout on desktop/tablet; mobile unchanged | ✅ Done |
+| 17 | Production stabilization — pooler URL fix, asyncpg type coercion, health endpoint | ✅ Done |
 
 ---
 
@@ -49,9 +50,9 @@ npm run dev -- --host 127.0.0.1
 
 Always check if processes are already running (`lsof -i :8000 -i :5173`) before starting new ones.
 
-**Local dev note:** `DATABASE_URL` must now be a PostgreSQL connection string. Add to `backend/.env`:
+**Local dev note:** `DATABASE_URL` must be a PostgreSQL connection string. Add to `backend/.env`:
 ```
-DATABASE_URL=postgresql://postgres:eaeKRuCkqkHABdyC@db.zzkriinnegqxxgnqjdef.supabase.co:5432/postgres
+DATABASE_URL=<Supabase session-mode pooler URL>
 ```
 The local `ledger.db` SQLite file is no longer used.
 
@@ -69,7 +70,7 @@ ALPACA_API_SECRET=...
 ALPACA_ENV=paper
 ALPACA_FEED=iex
 API_TOKEN=<shared secret>
-DATABASE_URL=postgresql://postgres:eaeKRuCkqkHABdyC@db.zzkriinnegqxxgnqjdef.supabase.co:5432/postgres
+DATABASE_URL=<Supabase session-mode pooler URL>
 QUIVER_API_TOKEN=<required for filer sync — currently empty>
 MASSIVE_API_KEY=<Polygon.io API key — filled in>
 ANTHROPIC_API_KEY=<filled in — powers AI Narratives>
@@ -83,8 +84,9 @@ VITE_API_BASE_URL=          # empty locally — Vite proxy handles /api/*
 ```
 
 **Production env vars (set in host dashboards):**
-- Render: `DATABASE_URL=postgresql://postgres:eaeKRuCkqkHABdyC@db.zzkriinnegqxxgnqjdef.supabase.co:5432/postgres` ✅ (set 2026-05-27)
+- Render: `DATABASE_URL=<Supabase session-mode pooler URL>` ✅
 - Render: `ALLOWED_ORIGINS=https://myledger-wheat.vercel.app` ✅
+- Render: `ALPACA_API_KEY`, `ALPACA_API_SECRET`, `API_TOKEN`, `MASSIVE_API_KEY`, `ANTHROPIC_API_KEY` ✅
 - Vercel: `VITE_API_BASE_URL=https://myledger-awc8.onrender.com` ✅
 - Vercel: `VITE_API_TOKEN=<shared secret>` ✅
 
@@ -103,6 +105,8 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
    - Pydantic `BaseModel` fields: `Optional[X]` not `X | None`.
    - Regular function annotations: `X | None` is fine under `__future__`.
 6. **Database is PostgreSQL (asyncpg).** Never reintroduce aiosqlite. Use `$1/$2/...` placeholders, `ON CONFLICT DO NOTHING/UPDATE`, `RETURNING id` for inserts. No `db.close()` in routers — pool handles lifecycle via `get_db()` generator dependency.
+7. **asyncpg type strictness:** Always cast bar data explicitly — `float(b["o/h/l/c"])`, `int(b["v"])` — before passing to `executemany`. asyncpg rejects Python floats for INTEGER columns unlike SQLite.
+8. **Supabase connection:** Use the **session-mode pooler URL** (host: `*.pooler.supabase.com`, port `5432`, username prefixed with project ref). The direct connection (`db.*.supabase.co:5432`) is unreachable from Render's Docker containers (IPv6 routing issue).
 
 ---
 
@@ -111,19 +115,19 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 ### Core
 
 - `app/config.py` — Pydantic settings. Fields: alpaca keys, `alpaca_env`, `alpaca_feed`, `api_token`, `database_url` (default `postgresql://localhost/ledger`), `quiver_api_token`, `massive_api_key`, `anthropic_api_key`.
-- `app/database.py` — asyncpg pool. `init_db()` creates pool + runs DDL + seeds default settings. `get_db()` is an async generator FastAPI dependency (yields pooled connection, no manual close needed). `get_pool()` returns pool directly for background tasks (scanner, auto_trader). `close_db()` called in lifespan shutdown.
-- `app/alpaca.py` — Two httpx clients (trading + data). `trading_get()`, `trading_post()`, `data_get()`.
+- `app/database.py` — asyncpg pool. `init_db()` creates pool + runs DDL + seeds default settings. Logs masked DB URL and row counts on every startup. Warns loudly if fallback default URL is used. Retries pool creation up to 5× with exponential backoff (1+2+4+8+16s). `get_db()` is an async generator FastAPI dependency. `get_pool()` returns pool directly for background tasks. `_masked_url()` exported for use in health endpoint.
+- `app/alpaca.py` — Two httpx clients (trading + data). `trading_get()`, `trading_post()`, `data_get()`. All three log ERROR with status code and response body on any non-2xx from Alpaca.
 - `app/quiver.py` — Quiver Quant client. `fetch_congress_trades()`.
 - `app/massive.py` — Polygon.io client. Rate-limited with `asyncio.Semaphore(3)`. Functions: `fetch_ticker_details`, `fetch_news`, `fetch_market_news` (no ticker), `fetch_financials`, `fetch_earnings_calendar`, `fetch_sector_map`, `fetch_ticker_names`.
 - `app/symbols.py` — Local NASDAQ/NYSE name lookup (~12k symbols). Registers `GET /api/symbols/names`.
 - `app/edgar.py` — **Stub only.** Returns empty holdings.
 - `app/indicators.py` — RSI, EMA, SMA, MACD, Bollinger, `compute_signals()`.
-- `app/scanner.py` — `signal_scanner_loop()` (60s), `alert_scanner_loop()` (30s). Uses `get_pool().acquire()` directly (not `get_db()`) since it's a background task outside FastAPI request context. Calls `reconcile_pending_trades()` at the top of every signal scan. Datetime fields from asyncpg are Python `datetime` objects (not strings) — handled accordingly.
-- `app/auto_trader.py` — `maybe_auto_trade()`, `reconcile_pending_trades()`, `_build_reasoning()`, `_compute_qty()`. Accepts `asyncpg.Connection`. Uses `RETURNING id` to get `log_id` from pending INSERT. No `db.commit()` calls — asyncpg auto-commits single statements.
+- `app/scanner.py` — `signal_scanner_loop()` (60s), `alert_scanner_loop()` (30s). Uses `get_pool().acquire()` directly. Calls `reconcile_pending_trades()` at the top of every signal scan.
+- `app/auto_trader.py` — `maybe_auto_trade()`, `reconcile_pending_trades()`, `_build_reasoning()`, `_compute_qty()`. Two-phase commit with `RETURNING id`.
 - `app/evaluator.py` — `evaluate_trade()` → `EvaluationResult`.
 - `app/ai.py` — Claude API client. `generate_briefing()` and `generate_risk_narrative()`. On-demand only.
 - `app/auth.py` — Bearer token middleware.
-- `app/main.py` — FastAPI app, lifespan (`init_db` + `close_db`), scanners.
+- `app/main.py` — FastAPI app, lifespan, scanners. Includes unauthenticated `GET /api/health` that returns masked DB URL + watchlist/settings row counts.
 
 ### Routers (`app/routers/`)
 
@@ -146,103 +150,66 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 
 ---
 
-## Phase 15 — SQLite → PostgreSQL/asyncpg Migration (2026-05-27)
+## Phase 17 — Production Stabilization (2026-05-27)
 
-### Why
+### Root causes diagnosed and fixed
 
-Render's free plan doesn't support persistent disks. Every deploy wiped the SQLite container file, losing watchlist + settings. Migrated to Supabase (hosted PostgreSQL) — data now outlives any number of redeploys.
+**1. Data loss on every deploy (watchlist + settings resetting)**
+- Root cause: Render's Docker container cannot reach Supabase's direct connection endpoint (`db.*.supabase.co:5432`) — IPv6 routing failure (errno 101 "Network unreachable").
+- Fix: Switch `DATABASE_URL` in Render dashboard to the **Supabase session-mode pooler URL** (`*.pooler.supabase.com:5432`, username prefixed with project ref like `postgres.zzkriinnegqxxgnqjdef`).
+- Note: `ON CONFLICT DO NOTHING` in `init_db()` correctly prevents seed data from overwriting existing rows — the real issue was the connection never reaching Supabase at all.
+
+**2. Watchlist loads but price/indicator data shows "Failed to fetch"**
+- Root cause: `asyncpg` strict type checking rejects Python `float` values for `INTEGER NOT NULL` columns. Alpaca's JSON response returns `volume` as a float (e.g., `25000000.0`). The SQLite version (aiosqlite) accepted this silently; asyncpg does not.
+- Fix: Explicit casts in `_fetch_bars_with_cache`: `float(b["o/h/l/c"])` and `int(b["v"])` before `executemany`.
+- The `executemany` call is now guarded with a try/except that logs but doesn't crash the request, so a cache write failure doesn't take down the bars endpoint.
+
+### Diagnostics added (permanent, useful for future issues)
+
+- `GET /api/health` (no auth required) — returns `{"status": "ok", "database": "...(masked)...", "watchlist_rows": N, "settings_rows": N}`. Quick production sanity check.
+- `init_db()` startup log — logs the masked DB URL and row counts after every startup. If DATABASE_URL is the fallback default, logs a loud WARNING.
+- Alpaca client error logging — all non-2xx responses from Alpaca now log `ERROR` with the status code and first 200 chars of the response body.
+- Indicators endpoint logging — logs `ERROR` if `_fetch_bars_with_cache` throws, `WARNING` if it returns empty bars.
+- `_fetch_bars_with_cache` now logs `ERROR` if the bar_cache DB write fails (but continues — bars still return from the live Alpaca response).
+
+### asyncpg retry on startup
+
+`init_db()` retries pool creation up to 5 times with exponential backoff (1, 2, 4, 8, 16 seconds) before failing. This handles transient connectivity issues during Render cold starts.
+
+---
+
+## Phase 15 — SQLite → PostgreSQL/asyncpg Migration
 
 ### What changed
 
 **`requirements.txt`:** `aiosqlite` → `asyncpg>=0.29.0`
 
-**`app/database.py`** — complete rewrite:
-- `init_db()` now creates an asyncpg connection pool (`min_size=2, max_size=10`) then runs all DDL + seeds defaults in a single transaction.
-- `get_db()` is an `AsyncGenerator` that yields a pooled connection. FastAPI auto-releases it after each request. **No `db.close()` anywhere in routers.**
-- `get_pool()` returns the pool for background tasks.
-- `close_db()` gracefully closes the pool on shutdown.
+**DDL changes:** `INTEGER PRIMARY KEY AUTOINCREMENT` → `SERIAL PRIMARY KEY`, `INSERT OR IGNORE` → `INSERT ... ON CONFLICT DO NOTHING`, `?` → `$1,$2,...`, `last_insert_rowid()` → `RETURNING id`, datetime strings → Python `datetime` objects.
 
-**DDL changes (SQLite → PostgreSQL):**
-- `INTEGER PRIMARY KEY AUTOINCREMENT` → `SERIAL PRIMARY KEY`
-- `INSERT OR IGNORE` → `INSERT ... ON CONFLICT DO NOTHING`
-- `INSERT OR REPLACE` → `INSERT ... ON CONFLICT (...) DO UPDATE SET ...`
-- `executescript()` → individual `execute()` calls inside a transaction
-- `PRAGMA table_info()` column migration checks → removed (Supabase DB is fresh, columns already in DDL)
-- `last_insert_rowid()` → `RETURNING id`
+**All routers + auto_trader + scanner:** `aiosqlite.Connection` → `asyncpg.Connection`, `db.fetch()` / `db.fetchrow()` / `db.fetchval()` instead of cursor pattern.
 
-**All routers + auto_trader + scanner:**
-- `aiosqlite.Connection` → `asyncpg.Connection`
-- `async with db.execute(...) as cur: rows = await cur.fetchall()` → `rows = await db.fetch(...)`
-- `async with db.execute(...) as cur: row = await cur.fetchone()` → `row = await db.fetchrow(...)`
-- `cur.lastrowid` → `await db.fetchval("INSERT ... RETURNING id", ...)`
-- `?` placeholders → `$1, $2, $3, ...`
-- `dict(row)` still works — asyncpg Records support it
-- `aiosqlite.IntegrityError` → `asyncpg.UniqueViolationError`
-- Timestamp fields from asyncpg are Python `datetime` objects, not strings — `fromisoformat()` calls removed
-
-**`render.yaml`:** Removed `disk` section and `mountPath`. `DATABASE_URL` set to `sync: false` (user provides in Render dashboard).
-
-**`app/config.py`:** Default `database_url` changed from `"ledger.db"` to `"postgresql://localhost/ledger"`.
+**`render.yaml`:** Removed `disk` section and `mountPath`. `DATABASE_URL` → `sync: false` (user provides pooler URL in Render dashboard).
 
 ### Production DB
 
 - **Supabase project:** `zzkriinnegqxxgnqjdef` ("MyPlayground" / PicoPaco workspace)
-- **Connection:** `postgresql://postgres:eaeKRuCkqkHABdyC@db.zzkriinnegqxxgnqjdef.supabase.co:5432/postgres`
-- Tables created automatically on first startup via `init_db()`. On first deploy, watchlist was empty and settings seeded with defaults — user re-added symbols after deploy.
+- **Connection:** Session-mode pooler URL (set in Render dashboard — not committed to code)
+- Tables created automatically on first startup via `init_db()`.
 
 ---
 
-## Phase 16 — Catch Me Up 2×2 Grid Layout (2026-05-27)
+## Phase 16 — Catch Me Up 2×2 Grid Layout
 
-### What changed
-
-`CatchMeUpTab.tsx` now renders differently based on viewport width:
+`CatchMeUpTab.tsx` renders differently based on viewport width:
 
 - **≥768px (tablet/desktop):** CSS Grid `grid-template-columns: 1fr 1fr`, `gap: 32px`. Order: Today's Orders | Yesterday's Orders (top row), Top Market News | Watchlist News (bottom row).
-- **<768px (mobile):** Original single-column flex stack, `gap: 48`, same section order.
+- **<768px (mobile):** Original single-column flex stack, same section order.
 
-Breakpoint detection uses `useState(() => window.innerWidth >= 768)` + a `resize` event listener (live-responds to window resize). Sections are extracted into named variables (`todaySection`, `yesterdaySection`, `marketSection`, `watchlistSection`) and reused in both render paths.
-
-**Desktop grid order (top→bottom, left→right):**
-1. Today's Orders
-2. Yesterday's Orders
-3. Top Market News
-4. Your Watchlist in the News
-
----
-
-## Phase 13 — Catch Me Up Tab
-
-### Component: `CatchMeUpTab.tsx`
-
-Props: `{ symbols: string[], orders: Order[] }`
-
-Internal sub-components (all file-local):
-- `NewsCard` — article link card with tag prop for ticker badge
-- `SectionHeader` — title + mono sub-label with bottom border
-- `EmptyState` — centered italic placeholder
-- `LoadingSkeleton` — 3 grey boxes
-- `OrderRow` — single order row used by both Today's and Yesterday's sections
-
-**Backend endpoints used:** `GET /api/massive/news` (market-wide) and `GET /api/massive/news/{symbol}`. Orders filtered client-side from `orders` prop.
-
-**Visibility guards in App.tsx:**
-- `PortfolioChart` hidden when `activeTab === 'catch-up'`
-- `TaxImpactStrip` **only** shown when `activeTab === 'positions'`
+Breakpoint detection uses `useState(() => window.innerWidth >= 768)` + a `resize` event listener.
 
 ---
 
 ## Phase 9 — Auto-Trade Intelligence
-
-### Auto-Trade Reasoning
-
-Every auto-trade stores a `reasoning TEXT` column in `auto_trade_log`. Built by `_build_reasoning()` in `auto_trader.py` — deterministic, no API call. Maps each signal label / alert condition / filer source to a plain-English explanation (why + potential benefit), appends evaluator verdict and risk level context.
-
-**Signal copy map** in `_SIGNAL_COPY` dict (8 entries): RSI Oversold/Overbought, Golden/Death Cross, MACD Bull/Bear, Below/Above Lower/Upper BB.
-
-Displayed in:
-- **Auto-Trade Log** (FilersTab) — click ▼ on any row to expand
-- **Recent Orders** (PositionsTab) — same expandable pattern, AUTO rows only
 
 ### Risk Dial (1–10)
 
@@ -256,39 +223,13 @@ Stored in `system_settings` key `risk_level` (default 5). Read on every auto-tra
 
 ### Two-Phase Commit
 
-1. `INSERT` with `status='pending', order_id=NULL` (auto-committed by asyncpg)
+1. `INSERT` with `status='pending', order_id=NULL`
 2. Call Alpaca
 3. `UPDATE` same row with `order_id`, `status='submitted'/'failed'`
 
-Frontend handles `'pending'` status with a "? pending" indicator + tooltip.
-
 ### Short-Selling Guard
 
-`allow_short_selling` setting (boolean, default `false`). When off, `maybe_auto_trade()` calls `GET /v2/positions/{symbol}` before any sell — if no long position exists, the trade is skipped.
-
----
-
-## Phase 11 — Portfolio Chart, Tax Strip, Reconciliation Fix
-
-### Portfolio Chart (`PortfolioChart.tsx`)
-
-Period tabs: `1D | 1W | 1M | 1Y | All`. Default: `1M`.
-
-| Period | Alpaca `period` | `timeframe` |
-|--------|----------------|-------------|
-| 1D | `1D` | `1Min` |
-| 1W | `1W` | `1H` |
-| 1M | `1M` | `1D` |
-| 1Y | `1A` | `1D` |
-| All | `5A` | `1D` |
-
-**Backend endpoint:** `GET /api/portfolio-history?period=&timeframe=` in `account.py`.
-
-### Tax Impact Strip (`TaxImpactStrip.tsx`)
-
-**Positions tab only.** Shows: Unrealized P&L (gross + after ST/LT rate + "benefit of waiting"), Day's P&L, NIIT Exposure (3.8%). Amber banner if configured rates differ from recommended (38.8/23.8) by >0.5%.
-
-**User's tax rates:** ST 38.8% (35% bracket + 3.8% NIIT), LT 23.8% (20% LTCG + 3.8% NIIT). MFJ, ~$600K income, FL.
+`allow_short_selling` setting (boolean, default `false`). When off, `maybe_auto_trade()` calls `GET /v2/positions/{symbol}` before any sell — skips if no long position.
 
 ---
 
@@ -315,12 +256,12 @@ symbol         TEXT NOT NULL
 side           TEXT NOT NULL
 qty            TEXT NOT NULL
 source         TEXT NOT NULL        -- 'signal', 'alert', 'filer', 'retroactive'
-source_ref     TEXT NOT NULL        -- e.g. 'RSI Oversold', 'price_below=150'
-order_id       TEXT                 -- NULL until phase 2 of two-phase commit
+source_ref     TEXT NOT NULL
+order_id       TEXT
 status         TEXT NOT NULL        -- 'pending', 'submitted', 'failed'
 error          TEXT
-recommendation TEXT                 -- evaluator result: 'proceed', 'caution', 'hold'
-reasoning      TEXT                 -- plain-English explanation
+recommendation TEXT
+reasoning      TEXT
 created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ```
 
@@ -331,7 +272,7 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ### App shell
 
 - `src/App.tsx` — Bootstrap + periodic polls. `PortfolioChart` hidden on `catch-up` tab. `TaxImpactStrip` only on `positions` tab. `autoTrades` polled every 30s.
-- `src/api/client.ts` — All typed API methods. `BASE` constant prepended to every fetch. Includes `getMarketNews(limit)` and `getTickerNews(symbol, limit)`.
+- `src/api/client.ts` — All typed API methods. `BASE` constant prepended to every fetch.
 - `src/types/index.ts` — All types. `AutoTradeEntry` has `recommendation`, `reasoning`, `status`. `AppSettings` has `risk_level` and `allow_short_selling`.
 
 ### Tab shell
@@ -375,47 +316,45 @@ created_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 - **Backend** → Render (free plan): **https://myledger-awc8.onrender.com**
 - **Database** → Supabase PostgreSQL (project `zzkriinnegqxxgnqjdef`)
 
-Auto-deploys on push to `main`. No disk needed — data lives in Supabase.
+Auto-deploys on push to `main`. Data lives in Supabase — survives all Render redeployments.
+
+**Quick production health check (no auth required):**
+```
+https://myledger-awc8.onrender.com/api/health
+```
 
 ### ⚠️ Render Free Plan Spin-Down
 
-Render free services sleep after ~15 min of inactivity. First request after sleep takes 30–60s. Upgrade to Starter ($7/mo) if this becomes annoying. Data is safe in Supabase regardless.
+Render free services sleep after ~15 min of inactivity. First request after sleep takes 30–60s. The scanner loops keep the backend active during market hours. Weekends/nights it will sleep. Upgrade to Starter ($7/mo) to eliminate cold starts.
+
+### ⚠️ Supabase Free Plan
+
+Free tier Supabase projects pause after **7 days of no database activity**. As long as Render's scanner loops are running (they query the DB every 30–60s), the project stays active. If the production app is idle for 7+ days, the Supabase project will pause and require manual restoration from the Supabase dashboard.
 
 ---
 
 ## What Changed This Session (2026-05-27)
 
-### New Features
-
-1. **SQLite → PostgreSQL migration** — Entire backend ported from aiosqlite/SQLite to asyncpg/PostgreSQL. Supabase is now the production database. Data survives all future Render deploys.
-2. **Catch Me Up 2×2 grid** — On desktop/tablet (≥768px), sections render as a 2-column CSS grid (orders on top, news on bottom). Mobile unchanged.
-
 ### Bug Fixes
 
-- **Watchlist/settings data loss on every deploy** — Root cause was Render free plan has no persistent disk; SQLite DB was ephemeral. Fixed by migrating to Supabase.
+1. **Watchlist/settings data loss** — Root cause: Render's Docker containers cannot reach Supabase's direct connection endpoint due to IPv6 routing failure (errno 101). Fixed by switching DATABASE_URL to the Supabase session-mode connection pooler URL.
+2. **"Failed to fetch" for all watchlist symbols** — Root cause: asyncpg strict type checking rejected Alpaca's float volume values for `INTEGER NOT NULL` bar_cache column. Fixed with explicit `int(b["v"])` and `float(b["o/h/l/c"])` casts in `_fetch_bars_with_cache`.
+
+### New Diagnostics (permanent)
+
+3. **`GET /api/health`** — Public endpoint, no auth needed. Returns masked DB URL + row counts. Use to instantly verify production DB connectivity.
+4. **Startup logging** — `init_db()` logs masked DB URL + watchlist/settings row counts after connecting. Warns if fallback default URL detected.
+5. **Alpaca error logging** — All non-2xx Alpaca responses now log status + body.
+6. **asyncpg retry** — Pool creation retries up to 5× on startup (exponential backoff).
 
 ### Files Modified
 
 **Backend:**
-- `requirements.txt` — `aiosqlite` → `asyncpg`
-- `app/database.py` — full rewrite (asyncpg pool, PostgreSQL DDL)
-- `app/main.py` — import `close_db`, call in lifespan shutdown
-- `app/config.py` — default `database_url` updated
-- `app/auto_trader.py` — asyncpg API, `RETURNING id`, no commit calls
-- `app/scanner.py` — `get_pool().acquire()` instead of `get_db()` + close
-- `app/routers/watchlist.py` — asyncpg, $N placeholders
-- `app/routers/settings.py` — asyncpg, `ON CONFLICT DO UPDATE`
-- `app/routers/alerts.py` — asyncpg, `RETURNING` for insert, numbered params in dynamic UPDATE
-- `app/routers/filers.py` — asyncpg, `ON CONFLICT DO NOTHING RETURNING id` for rowcount check
-- `app/routers/signals.py` — asyncpg, `NOW() - $2 * INTERVAL '1 day'` (replaces SQLite `datetime('now', ?)`)
-- `app/routers/indicators.py` — type annotation only
-- `app/routers/evaluate.py` — asyncpg
-- `app/routers/insights.py` — asyncpg
-- `app/routers/market.py` — asyncpg, bar_cache upsert uses `ON CONFLICT DO UPDATE`
-- `render.yaml` — removed disk section, `DATABASE_URL` → `sync: false`
-
-**Frontend:**
-- `src/components/tabs/CatchMeUpTab.tsx` — `isDesktop` state + resize listener; 2×2 grid render path for desktop
+- `app/database.py` — logging, `_masked_url()`, startup retry (5×), row count logging after init
+- `app/main.py` — `GET /api/health` endpoint
+- `app/alpaca.py` — error logging on non-2xx responses
+- `app/routers/market.py` — explicit type casts for bar_cache inserts, try/except around executemany, error logging
+- `app/routers/indicators.py` — error + warning logging around bar fetch
 
 ---
 
@@ -423,18 +362,17 @@ Render free services sleep after ~15 min of inactivity. First request after slee
 
 ### Immediate — High Value
 
-1. **Add watchlist symbols + set risk level on production** — Fresh Supabase DB was seeded with defaults. User needs to re-add watchlist symbols and set risk level at https://myledger-wheat.vercel.app (or already done this session).
-2. **QUIVER_API_TOKEN** — Add real token to `backend/.env` AND Render env dashboard. Still the only blocker for Filer sync (Phase 2b copy-trading flow).
+1. **QUIVER_API_TOKEN** — Add real token to `backend/.env` AND Render env dashboard. Still the only blocker for Filer sync (Phase 2b copy-trading flow).
 
 ### Next in Feature Build Sequence
 
-3. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would need to track entry price at buy time and record fills.
-4. **Bundle splitting** — Production build is ~591 KB / 171 KB gzipped (one chunk). Vite warns above 500 KB. Consider lazy-loading recharts.
-5. **Render free tier spin-down** — Upgrade to Starter ($7/mo) if the 30–60s cold start becomes annoying. Data safety is no longer a concern.
+2. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would need to track entry price at buy time and record fills.
+3. **Bundle splitting** — Production build is ~591 KB / 171 KB gzipped (one chunk). Vite warns above 500 KB. Consider lazy-loading recharts.
+4. **Render free tier spin-down** — Upgrade to Starter ($7/mo) if the 30–60s cold start becomes annoying. Data safety is no longer a concern.
 
 ### Low Priority / Future
 
-6. **AI Narrative enhancements** — Could incorporate Polygon news per symbol.
-7. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
-8. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
-9. **Mobile / responsive** — Desktop-only. Below ~768px the layout is partially handled (Catch Me Up), but overall layout below ~1100px breaks.
+5. **AI Narrative enhancements** — Could incorporate Polygon news per symbol.
+6. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
+7. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
+8. **Mobile / responsive** — Desktop-only. Below ~768px the layout is partially handled (Catch Me Up), but overall layout below ~1100px breaks.
