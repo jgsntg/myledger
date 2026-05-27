@@ -257,6 +257,22 @@ export interface NewsArticle {
   tickers: string[]
 }
 
+export interface RealizedPnlSymbol {
+  symbol: string
+  realized_pl: number
+  short_term: number
+  long_term: number
+  trades: number
+}
+
+export interface RealizedPnl {
+  total_realized: number
+  short_term: number
+  long_term: number
+  by_symbol: RealizedPnlSymbol[]
+  fills_analyzed: number
+}
+
 export interface AutoTradeEntry {
   id: number
   symbol: string

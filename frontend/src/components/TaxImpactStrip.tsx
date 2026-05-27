@@ -1,5 +1,7 @@
-import { AccountData, AppSettings, Position } from '../types'
+import { useEffect, useState } from 'react'
+import { api } from '../api/client'
 import { fmtMoney } from '../lib/format'
+import { AccountData, AppSettings, Position, RealizedPnl } from '../types'
 
 // Tax situation: MFJ ~$600K, FL (no state tax), 2 kids (credit phased out above $400K)
 // NIIT (3.8%) applies — MAGI well above the $250K MFJ threshold
@@ -34,6 +36,17 @@ function deltaColor(n: number) {
 export default function TaxImpactStrip({ account, positions, settings }: Props) {
   const stRate = settings.tax_short_term_rate
   const ltRate = settings.tax_long_term_rate
+  const ltDays = settings.tax_long_term_days ?? 365
+
+  const [realized, setRealized] = useState<RealizedPnl | null>(null)
+  const [realizedLoading, setRealizedLoading] = useState(true)
+
+  useEffect(() => {
+    api.getRealizedPnl(ltDays)
+      .then(setRealized)
+      .catch(() => setRealized(null))
+      .finally(() => setRealizedLoading(false))
+  }, [ltDays])
 
   const totalUnrealized = positions.reduce(
     (sum, p) => sum + parseFloat(p.unrealized_pl || '0'),
@@ -50,6 +63,14 @@ export default function TaxImpactStrip({ account, positions, settings }: Props) 
 
   const dayAfterTax = dayPL !== null ? afterTax(dayPL, stRate) : null
   const dayTaxDrag = dayPL !== null ? dayPL - (dayAfterTax ?? 0) : null
+
+  // Blended after-tax for realized: ST portion at ST rate, LT portion at LT rate
+  const realizedAfterTax = realized
+    ? afterTax(realized.short_term, stRate) + afterTax(realized.long_term, ltRate)
+    : null
+  const realizedTaxDrag = realized && realizedAfterTax !== null
+    ? realized.total_realized - realizedAfterTax
+    : null
 
   const stOff = Math.abs(stRate - RECOMMENDED_ST) > RATE_TOLERANCE
   const ltOff = Math.abs(ltRate - RECOMMENDED_LT) > RATE_TOLERANCE
@@ -117,11 +138,11 @@ export default function TaxImpactStrip({ account, positions, settings }: Props) 
         </div>
       )}
 
-      {/* Main grid */}
+      {/* Main grid — 3 columns */}
       <div
         style={{
           display: 'grid',
-          gridTemplateColumns: '1fr 1px 1fr',
+          gridTemplateColumns: '1fr 1px 1fr 1px 1fr',
           gap: 0,
           background: 'var(--line)',
           border: '1px solid var(--line)',
@@ -181,7 +202,7 @@ export default function TaxImpactStrip({ account, positions, settings }: Props) 
         {/* Divider */}
         <div style={{ background: 'var(--line)' }} />
 
-        {/* Day's P&L block */}
+        {/* Today's P&L block */}
         <div style={{ background: 'var(--bg-elev)', padding: '18px 22px' }}>
           <div style={labelStyle}>Today's P&amp;L</div>
           <div
@@ -236,15 +257,7 @@ export default function TaxImpactStrip({ account, positions, settings }: Props) 
             <div style={labelStyle}>NIIT Exposure (3.8%)</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 6 }}>
               {totalUnrealized !== 0 && (
-                <div
-                  style={{
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontSize: 11,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    color: 'var(--ink-soft)',
-                  }}
-                >
+                <div style={niitRowStyle}>
                   <span>On unrealized gains</span>
                   <span style={{ color: totalUnrealized > 0 ? 'var(--red)' : 'var(--green)' }}>
                     {totalUnrealized > 0 ? '-' : '+'}{fmtMoney(Math.abs(totalUnrealized * NIIT_RATE))}
@@ -252,18 +265,18 @@ export default function TaxImpactStrip({ account, positions, settings }: Props) 
                 </div>
               )}
               {dayPL !== null && dayPL !== 0 && (
-                <div
-                  style={{
-                    fontFamily: 'JetBrains Mono, monospace',
-                    fontSize: 11,
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    color: 'var(--ink-soft)',
-                  }}
-                >
+                <div style={niitRowStyle}>
                   <span>On today's P&amp;L</span>
                   <span style={{ color: dayPL > 0 ? 'var(--red)' : 'var(--green)' }}>
                     {dayPL > 0 ? '-' : '+'}{fmtMoney(Math.abs(dayPL * NIIT_RATE))}
+                  </span>
+                </div>
+              )}
+              {realized && realized.total_realized !== 0 && (
+                <div style={niitRowStyle}>
+                  <span>On realized gains</span>
+                  <span style={{ color: realized.total_realized > 0 ? 'var(--red)' : 'var(--green)' }}>
+                    {realized.total_realized > 0 ? '-' : '+'}{fmtMoney(Math.abs(realized.total_realized * NIIT_RATE))}
                   </span>
                 </div>
               )}
@@ -273,6 +286,120 @@ export default function TaxImpactStrip({ account, positions, settings }: Props) 
               Already included in the rates above.
             </div>
           </div>
+        </div>
+
+        {/* Divider */}
+        <div style={{ background: 'var(--line)' }} />
+
+        {/* Realized P&L block */}
+        <div style={{ background: 'var(--bg-elev)', padding: '18px 22px' }}>
+          <div style={labelStyle}>Realized P&amp;L</div>
+
+          {realizedLoading ? (
+            <div style={{ color: 'var(--ink-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, marginTop: 8 }}>
+              Loading…
+            </div>
+          ) : realized === null ? (
+            <div style={{ color: 'var(--ink-mute)', fontFamily: 'JetBrains Mono, monospace', fontSize: 11, marginTop: 8 }}>
+              Unavailable
+            </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  fontFamily: 'Fraunces, Georgia, serif',
+                  fontSize: 28,
+                  fontWeight: 400,
+                  letterSpacing: '-0.5px',
+                  color: deltaColor(realized.total_realized),
+                  marginBottom: 12,
+                }}
+              >
+                {realized.total_realized === 0 ? '—' : signed(realized.total_realized)}
+              </div>
+
+              {realized.total_realized !== 0 && realizedAfterTax !== null && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <TaxRow
+                    label="After blended tax"
+                    value={realizedAfterTax}
+                    gross={realized.total_realized}
+                  />
+                  {realized.short_term !== 0 && (
+                    <div style={niitRowStyle}>
+                      <span>Short-term portion</span>
+                      <span style={{ color: deltaColor(realized.short_term) }}>
+                        {signed(realized.short_term)}
+                      </span>
+                    </div>
+                  )}
+                  {realized.long_term !== 0 && (
+                    <div style={niitRowStyle}>
+                      <span>Long-term portion</span>
+                      <span style={{ color: deltaColor(realized.long_term) }}>
+                        {signed(realized.long_term)}
+                      </span>
+                    </div>
+                  )}
+                  {realizedTaxDrag !== null && realizedTaxDrag !== 0 && (
+                    <div
+                      style={{
+                        marginTop: 4,
+                        paddingTop: 8,
+                        borderTop: '1px solid var(--line-soft)',
+                        fontFamily: 'JetBrains Mono, monospace',
+                        fontSize: 10,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        color: 'var(--ink-mute)',
+                      }}
+                    >
+                      <span>Tax owed</span>
+                      <span style={{ color: realized.total_realized > 0 ? 'var(--red)' : 'var(--green)' }}>
+                        {realized.total_realized > 0 ? '-' : '+'}{fmtMoney(Math.abs(realizedTaxDrag))}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Per-symbol breakdown */}
+              {realized.by_symbol.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 14,
+                    paddingTop: 10,
+                    borderTop: '1px solid var(--line-soft)',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: 4,
+                  }}
+                >
+                  <div style={labelStyle}>By Symbol</div>
+                  {realized.by_symbol.slice(0, 6).map(s => (
+                    <div key={s.symbol} style={niitRowStyle}>
+                      <span style={{ color: 'var(--ink-soft)' }}>{s.symbol}</span>
+                      <span style={{ color: deltaColor(s.realized_pl) }}>
+                        {signed(s.realized_pl)}
+                        {s.long_term !== 0 && (
+                          <span style={{ color: 'var(--ink-mute)', fontSize: 9 }}> LT</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
+                  {realized.by_symbol.length > 6 && (
+                    <div style={{ ...noteStyle, marginTop: 2 }}>
+                      +{realized.by_symbol.length - 6} more symbols
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div style={{ ...noteStyle, marginTop: 12 }}>
+                FIFO matching · {realized.fills_analyzed} fills analyzed
+              </div>
+            </>
+          )}
         </div>
       </div>
     </section>
@@ -331,4 +458,12 @@ const noteStyle: React.CSSProperties = {
   color: 'var(--ink-mute)',
   lineHeight: 1.5,
   fontStyle: 'italic',
+}
+
+const niitRowStyle: React.CSSProperties = {
+  fontFamily: 'JetBrains Mono, monospace',
+  fontSize: 11,
+  display: 'flex',
+  justifyContent: 'space-between',
+  color: 'var(--ink-soft)',
 }

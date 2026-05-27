@@ -12,6 +12,7 @@ import type {
   Indicators,
   NewsArticle,
   Order,
+  RealizedPnl,
   TickerDetails,
   TopPerformers,
   TrackedFiler,
@@ -157,4 +158,7 @@ export const api = {
     request<FilerTransaction[]>(`/api/filers/${id}/transactions`),
   getFilerHoldings: (id: number) =>
     request<FilerHolding[]>(`/api/filers/${id}/holdings`),
+
+  getRealizedPnl: (ltDays = 365) =>
+    request<RealizedPnl>(`/api/realized-pnl?lt_days=${ltDays}`),
 }
