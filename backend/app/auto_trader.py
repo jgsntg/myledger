@@ -164,9 +164,6 @@ async def maybe_auto_trade(
     amount_low: Optional[float] = None,
     amount_high: Optional[float] = None,
 ) -> None:
-    if app_settings.alpaca_env == "live":
-        return
-
     row = await db.fetchrow(
         "SELECT value FROM system_settings WHERE key = 'trading_mode'"
     )

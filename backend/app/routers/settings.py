@@ -68,11 +68,6 @@ async def update_settings(
         mode = body.trading_mode.lower()
         if mode not in ("auto", "manual"):
             raise HTTPException(status_code=400, detail="trading_mode must be 'auto' or 'manual'")
-        if mode == "auto" and app_settings.alpaca_env == "live":
-            raise HTTPException(
-                status_code=403,
-                detail="Auto-trading is blocked in live mode. Switch to manual approval first.",
-            )
         await db.execute(
             "INSERT INTO system_settings (key, value) VALUES ('trading_mode', $1) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
