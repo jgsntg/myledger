@@ -22,7 +22,7 @@ from app.evaluator import evaluate_trade
 
 logger = logging.getLogger(__name__)
 
-_DAILY_CAP = 1  # max auto-trades per symbol per calendar day
+_DAILY_CAP = 10  # max auto-trades per symbol per calendar day
 
 _SIGNAL_COPY: dict[str, tuple[str, str]] = {
     "RSI Oversold": (
@@ -170,7 +170,7 @@ async def maybe_auto_trade(
     if not row or row["value"] != "auto":
         return
 
-    today = date.today().isoformat()
+    today = date.today()
     cap_row = await db.fetchrow(
         "SELECT COUNT(*) as cnt FROM auto_trade_log WHERE symbol = $1 AND DATE(created_at) = $2",
         symbol, today,

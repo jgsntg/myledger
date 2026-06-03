@@ -3,7 +3,7 @@
 import asyncio
 import logging
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import asyncpg
 from fastapi import APIRouter, Depends, Query
@@ -137,7 +137,7 @@ async def _fetch_bars_with_cache(
 
         if fresh_bars:
             rows_to_insert = [
-                (symbol, b["t"][:10], float(b["o"]), float(b["h"]), float(b["l"]), float(b["c"]), int(b["v"]))
+                (symbol, date.fromisoformat(b["t"][:10]), float(b["o"]), float(b["h"]), float(b["l"]), float(b["c"]), int(b["v"]))
                 for b in fresh_bars
                 if b["t"][:10] not in cached_dates
             ]

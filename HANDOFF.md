@@ -1,6 +1,6 @@
 # Ledger — Claude Handoff
 
-Last updated: 2026-05-27 — Production stabilization: Supabase pooler fix, asyncpg type coercion fix, DB health endpoint.
+Last updated: 2026-06-02 — Phase 18: Auto-trader date type crash fixed, bar_cache date type crash fixed (bars never persisted), live guard removed, daily cap raised to 10.
 
 ## Current State
 
@@ -31,6 +31,7 @@ FastAPI + React/TypeScript trading dashboard using Alpaca paper trading. **Datab
 | 15 | SQLite → PostgreSQL/asyncpg migration; Supabase as persistent production DB | ✅ Done |
 | 16 | Catch Me Up 2×2 grid layout on desktop/tablet; mobile unchanged | ✅ Done |
 | 17 | Production stabilization — pooler URL fix, asyncpg type coercion, health endpoint | ✅ Done |
+| 18 | Auto-trader + bar_cache date type crashes fixed; live guard removed; cap raised to 10 | ✅ Done |
 
 ---
 
@@ -97,16 +98,20 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 ## Critical Rules
 
 1. `ALPACA_ENV=paper` is the default. Never switch to `live` without explicit intent.
-2. Auto-trading is **blocked** when `ALPACA_ENV=live` — enforced in both `auto_trader.py` and the settings API.
-3. Backend only for Alpaca, Quiver, and Massive credentials.
-4. No financial advice copy.
-5. Python 3.9 compatibility:
+2. **⚠️ Auto-trading live-mode guard was removed on 2026-06-01** — the hard block (`if app_settings.alpaca_env == "live": return`) in `auto_trader.py` and the 403 in `settings.py` no longer exist. Auto-trading WILL fire against a live Alpaca account if `ALPACA_ENV=live`. Before switching to real money, explicitly warn the user and ask if they want to re-add guards.
+3. **`_DAILY_CAP = 10` in `auto_trader.py`** was raised from 1 for paper trading. When switching to real money, lower this back to 1–3.
+4. Backend only for Alpaca, Quiver, and Massive credentials.
+5. No financial advice copy.
+6. Python 3.9 compatibility:
    - All new `.py` files: `from __future__ import annotations` at the top.
    - Pydantic `BaseModel` fields: `Optional[X]` not `X | None`.
    - Regular function annotations: `X | None` is fine under `__future__`.
-6. **Database is PostgreSQL (asyncpg).** Never reintroduce aiosqlite. Use `$1/$2/...` placeholders, `ON CONFLICT DO NOTHING/UPDATE`, `RETURNING id` for inserts. No `db.close()` in routers — pool handles lifecycle via `get_db()` generator dependency.
-7. **asyncpg type strictness:** Always cast bar data explicitly — `float(b["o/h/l/c"])`, `int(b["v"])` — before passing to `executemany`. asyncpg rejects Python floats for INTEGER columns unlike SQLite.
-8. **Supabase connection:** Use the **session-mode pooler URL** (host: `*.pooler.supabase.com`, port `5432`, username prefixed with project ref). The direct connection (`db.*.supabase.co:5432`) is unreachable from Render's Docker containers (IPv6 routing issue).
+7. **Database is PostgreSQL (asyncpg).** Never reintroduce aiosqlite. Use `$1/$2/...` placeholders, `ON CONFLICT DO NOTHING/UPDATE`, `RETURNING id` for inserts. No `db.close()` in routers — pool handles lifecycle via `get_db()` generator dependency.
+8. **asyncpg type strictness — three known gotchas:**
+   - Cast bar data explicitly: `float(b["o/h/l/c"])`, `int(b["v"])` before `executemany`. asyncpg rejects Python floats for `INTEGER` columns.
+   - Never pass `date.today().isoformat()` (string) for a `DATE` comparison — pass `date.today()` (Python `date` object).
+   - Never pass a date string (e.g. `b["t"][:10]`) for a `DATE` column insert — use `date.fromisoformat(b["t"][:10])`. asyncpg requires a Python `date` object; a string causes `'str' object has no attribute 'toordinal'`.
+9. **Supabase connection:** Use the **session-mode pooler URL** (host: `*.pooler.supabase.com`, port `5432`, username prefixed with project ref). The direct connection (`db.*.supabase.co:5432`) is unreachable from Render's Docker containers (IPv6 routing issue).
 
 ---
 
@@ -122,8 +127,8 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 - `app/symbols.py` — Local NASDAQ/NYSE name lookup (~12k symbols). Registers `GET /api/symbols/names`.
 - `app/edgar.py` — **Stub only.** Returns empty holdings.
 - `app/indicators.py` — RSI, EMA, SMA, MACD, Bollinger, `compute_signals()`.
-- `app/scanner.py` — `signal_scanner_loop()` (60s), `alert_scanner_loop()` (30s). Uses `get_pool().acquire()` directly. Calls `reconcile_pending_trades()` at the top of every signal scan.
-- `app/auto_trader.py` — `maybe_auto_trade()`, `reconcile_pending_trades()`, `_build_reasoning()`, `_compute_qty()`. Two-phase commit with `RETURNING id`.
+- `app/scanner.py` — `signal_scanner_loop()` (60s), `alert_scanner_loop()` (30s). Uses `get_pool().acquire()` directly. Calls `reconcile_pending_trades()` at the top of every signal scan. Only runs scans when `clock.get("is_open")` is true.
+- `app/auto_trader.py` — `maybe_auto_trade()`, `reconcile_pending_trades()`, `_build_reasoning()`, `_compute_qty()`. Two-phase commit with `RETURNING id`. `_DAILY_CAP = 10` (paper trading; reduce for real money). No live-mode guard (was removed 2026-06-01).
 - `app/evaluator.py` — `evaluate_trade()` → `EvaluationResult`.
 - `app/ai.py` — Claude API client. `generate_briefing()` and `generate_risk_narrative()`. On-demand only.
 - `app/auth.py` — Bearer token middleware.
@@ -147,6 +152,63 @@ Never expose Alpaca keys, Quiver token, or Massive key to the frontend.
 | `insights.py` | `GET /api/insights/top-performers?refresh=` |
 | `massive.py` | `GET /api/massive/news` (market-wide), `GET /api/massive/news/{symbol}`, ticker, financials, earnings-calendar, sectors, names |
 | `ai.py` | `POST /api/ai/briefing`, `POST /api/ai/risk-narrative` |
+
+---
+
+## Phase 18 — Auto-Trader Bug Fix (2026-06-02)
+
+### Root cause: `date = text` type mismatch crashing every auto-trade
+
+Every call to `maybe_auto_trade()` was throwing an uncaught exception at the daily-cap check:
+
+```python
+# Before (broken)
+today = date.today().isoformat()   # Python str → asyncpg sends as PostgreSQL text
+cap_row = await db.fetchrow(
+    "SELECT COUNT(*) ... WHERE symbol = $1 AND DATE(created_at) = $2",
+    symbol, today,   # PostgreSQL: date = text → ERROR: operator does not exist
+)
+```
+
+PostgreSQL cannot compare `date` and `text` types without an explicit cast. The exception propagated out of `maybe_auto_trade()` uncaught, was caught by the scanner's `except Exception`, and logged as "Signal scan failed for {symbol}" — every symbol, every cycle.
+
+**Fix:** Pass `date.today()` (Python `date` object) instead of `.isoformat()` (string). asyncpg maps Python `date` → PostgreSQL `date`, making the comparison type-safe.
+
+```python
+# After (fixed)
+today = date.today()   # Python date object → asyncpg sends as PostgreSQL date
+```
+
+### What was visible in logs before the fix
+
+```
+INFO:app.scanner:New signal: AMD MACD Bear @ 519.16
+ERROR:app.scanner:Signal scan failed for AMD
+  File "/app/app/scanner.py", line 81, in _run_signal_scan
+```
+
+Signals were detected and inserted into `signal_events`, but every `maybe_auto_trade()` call crashed before reaching Alpaca. No trades were submitted.
+
+### bar_cache date type crash (routers/market.py)
+
+Every call to `_fetch_bars_with_cache` was logging `bar_cache write failed for {symbol}: 'str' object has no attribute 'toordinal'`. The `bar_date` column is `DATE NOT NULL`; asyncpg needs a Python `date` object but was receiving a string (`b["t"][:10]` = e.g. `'2025-06-03'`).
+
+**Effect:** Bars were never persisted to `bar_cache`. Every request refetched from Alpaca from scratch, hammering their API and ignoring the DB cache entirely.
+
+**Fix:** `date.fromisoformat(b["t"][:10])` instead of `b["t"][:10]` in the `rows_to_insert` list comprehension. Also added `date` to the `from datetime import ...` line.
+
+```python
+# Before (broken) — market.py line 140
+(symbol, b["t"][:10], ...)   # str → toordinal error
+
+# After (fixed)
+(symbol, date.fromisoformat(b["t"][:10]), ...)   # date object → works
+```
+
+### Other changes this session
+
+- **Removed live-mode auto-trade guard** (commit `ba7242c`, 2026-06-01): The `if app_settings.alpaca_env == "live": return` check in `auto_trader.py` and the 403 in `settings.py` were removed while the app is still paper trading. See Critical Rules #2 and #3.
+- **`_DAILY_CAP` raised to 10** (was 1, then 5, then 10): Set to 10 for paper trading experimentation. Must be lowered before switching to real money.
 
 ---
 
@@ -333,28 +395,23 @@ Free tier Supabase projects pause after **7 days of no database activity**. As l
 
 ---
 
-## What Changed This Session (2026-05-27)
+## What Changed This Session (2026-06-02)
 
 ### Bug Fixes
 
-1. **Watchlist/settings data loss** — Root cause: Render's Docker containers cannot reach Supabase's direct connection endpoint due to IPv6 routing failure (errno 101). Fixed by switching DATABASE_URL to the Supabase session-mode connection pooler URL.
-2. **"Failed to fetch" for all watchlist symbols** — Root cause: asyncpg strict type checking rejected Alpaca's float volume values for `INTEGER NOT NULL` bar_cache column. Fixed with explicit `int(b["v"])` and `float(b["o/h/l/c"])` casts in `_fetch_bars_with_cache`.
+1. **Auto-trader crashing on every signal** — `date.today().isoformat()` (Python `str`) passed as `$2` in `SELECT COUNT(*) ... WHERE DATE(created_at) = $2`. PostgreSQL `date = text` has no operator; every `maybe_auto_trade()` call threw uncaught. Fixed: `date.today()` (Python `date` object). File: `app/auto_trader.py:173`.
+2. **bar_cache never persisting** — `b["t"][:10]` (string like `'2025-06-03'`) passed as `$2` for `bar_date DATE NOT NULL` in `executemany`. asyncpg needs a `date` object; string triggers `'str' object has no attribute 'toordinal'`. Every request refetched live from Alpaca. Fixed: `date.fromisoformat(b["t"][:10])`. File: `app/routers/market.py:140`.
 
-### New Diagnostics (permanent)
+### Configuration Changes
 
-3. **`GET /api/health`** — Public endpoint, no auth needed. Returns masked DB URL + row counts. Use to instantly verify production DB connectivity.
-4. **Startup logging** — `init_db()` logs masked DB URL + watchlist/settings row counts after connecting. Warns if fallback default URL detected.
-5. **Alpaca error logging** — All non-2xx Alpaca responses now log status + body.
-6. **asyncpg retry** — Pool creation retries up to 5× on startup (exponential backoff).
+3. **`_DAILY_CAP` raised to 10** — Was 1 originally (conservative safety rail), raised to 10 for paper trading. Must be lowered before switching to real money (`app/auto_trader.py:25`).
+4. **Live-mode auto-trade guard removed** (commit `ba7242c`, 2026-06-01) — The hard block in `auto_trader.py` and 403 in `settings.py` were removed while still paper trading. **See Critical Rules #2 and #3.**
 
 ### Files Modified
 
 **Backend:**
-- `app/database.py` — logging, `_masked_url()`, startup retry (5×), row count logging after init
-- `app/main.py` — `GET /api/health` endpoint
-- `app/alpaca.py` — error logging on non-2xx responses
-- `app/routers/market.py` — explicit type casts for bar_cache inserts, try/except around executemany, error logging
-- `app/routers/indicators.py` — error + warning logging around bar fetch
+- `app/auto_trader.py` — fixed date type (`isoformat()` removed), `_DAILY_CAP` → 10, removed live guard
+- `app/routers/market.py` — fixed bar_cache `bar_date` type (`b["t"][:10]` → `date.fromisoformat(...)`), added `date` to imports
 
 ---
 
@@ -363,16 +420,18 @@ Free tier Supabase projects pause after **7 days of no database activity**. As l
 ### Immediate — High Value
 
 1. **QUIVER_API_TOKEN** — Add real token to `backend/.env` AND Render env dashboard. Still the only blocker for Filer sync (Phase 2b copy-trading flow).
+2. **Verify auto-trades firing** — After deploying Phase 18 fix, confirm trades appear in the Auto-Trade Log during next market session. Check Render logs for `"Auto-trade: BUY/SELL"` lines.
 
 ### Next in Feature Build Sequence
 
-2. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would need to track entry price at buy time and record fills.
-3. **Bundle splitting** — Production build is ~591 KB / 171 KB gzipped (one chunk). Vite warns above 500 KB. Consider lazy-loading recharts.
-4. **Render free tier spin-down** — Upgrade to Starter ($7/mo) if the 30–60s cold start becomes annoying. Data safety is no longer a concern.
+3. **Realized P&L tracking** — No running tally of closed-trade gains/losses for the tax year. Alpaca doesn't return cost basis on closed orders; would need to track entry price at buy time and record fills.
+4. **Bundle splitting** — Production build is ~591 KB / 171 KB gzipped (one chunk). Vite warns above 500 KB. Consider lazy-loading recharts.
+5. **Render free tier spin-down** — Upgrade to Starter ($7/mo) if the 30–60s cold start becomes annoying. Data safety is no longer a concern.
 
 ### Low Priority / Future
 
-5. **AI Narrative enhancements** — Could incorporate Polygon news per symbol.
-6. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
-7. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
-8. **Mobile / responsive** — Desktop-only. Below ~768px the layout is partially handled (Catch Me Up), but overall layout below ~1100px breaks.
+6. **AI Narrative enhancements** — Could incorporate Polygon news per symbol.
+7. **EDGAR 13F XML parsing** — `edgar.py` is a stub. Full 13F XML support deferred.
+8. **Notifications delivery** — `notifications_log` entries written but never sent. Resend (email) was the preferred provider.
+9. **Mobile / responsive** — Desktop-only. Below ~768px the layout is partially handled (Catch Me Up), but overall layout below ~1100px breaks.
+10. **Live trading readiness** — Before switching `ALPACA_ENV=live`: lower `_DAILY_CAP` back to 1–3, consider re-adding the live-mode guard in `auto_trader.py` and `settings.py`.
